@@ -14,8 +14,8 @@ project_root = os.path.dirname(os.path.dirname(current_file))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Import Studio client
-from playground.studio_client import (
+# Import Studio client (use relative import to avoid circular import)
+from studio_client import (
     get_studio_client,
     init_studio_client,
     check_studio_connection,
