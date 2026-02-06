@@ -83,7 +83,6 @@ class ChatCompletionRequest(BaseModel):
 
     # ACE-Step specific parameters (extended)
     thinking: Optional[bool] = Field(default=None, description="Use LM for audio code generation")
-    inference_steps: Optional[int] = Field(default=None, description="Diffusion inference steps")
     guidance_scale: Optional[float] = Field(default=None, description="Classifier-free guidance scale")
     batch_size: Optional[int] = Field(default=None, description="Number of audio samples to generate")
 

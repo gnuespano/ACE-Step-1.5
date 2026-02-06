@@ -135,8 +135,11 @@ def test_natural_language_mode(base_url: str, api_key: Optional[str] = None) -> 
         "messages": [
             {"role": "user", "content": "Generate an upbeat pop song about summer and travel"}
         ],
-        "vocal_language": "en",
-        "duration": 30,
+        "sample_mode": True,
+        "audio_config": {
+            "vocal_language": "en",
+            "duration": 30,
+        },
     }
 
     print(f"请求: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -198,8 +201,10 @@ We are the light</lyrics>"""
 
     payload = {
         "messages": [{"role": "user", "content": content}],
-        "vocal_language": "en",
-        "duration": 30,
+        "audio_config": {
+            "vocal_language": "en",
+            "duration": 30,
+        },
     }
 
     print(f"请求: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -255,8 +260,10 @@ Under the moonlight"""
 
     payload = {
         "messages": [{"role": "user", "content": lyrics}],
-        "vocal_language": "en",
-        "duration": 30,
+        "audio_config": {
+            "vocal_language": "en",
+            "duration": 30,
+        },
     }
 
     print(f"请求: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -288,8 +295,10 @@ def test_instrumental_mode(base_url: str, api_key: Optional[str] = None) -> bool
         "messages": [
             {"role": "user", "content": "<prompt>Epic orchestral cinematic score, dramatic and powerful</prompt>"}
         ],
-        "instrumental": True,
-        "duration": 30,
+        "audio_config": {
+            "instrumental": True,
+            "duration": 30,
+        },
     }
 
     print(f"请求: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -322,8 +331,11 @@ def test_streaming_mode(base_url: str, api_key: Optional[str] = None) -> bool:
             {"role": "user", "content": "Generate a cheerful guitar piece"}
         ],
         "stream": True,
-        "instrumental": True,
-        "duration": 30,
+        "sample_mode": True,
+        "audio_config": {
+            "instrumental": True,
+            "duration": 30,
+        },
     }
 
     print(f"请求: {json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -413,14 +425,15 @@ def test_full_parameters(base_url: str, api_key: Optional[str] = None) -> bool:
         ],
         "temperature": 0.9,
         "top_p": 0.95,
-        "bpm": 85,
-        "duration": 30,
-        "instrumental": True,
         "thinking": False,
-        "use_cot_metas": True,
         "use_cot_caption": True,
         "use_cot_language": False,
         "use_format": True,
+        "audio_config": {
+            "bpm": 85,
+            "duration": 30,
+            "instrumental": True,
+        },
     }
 
     print(f"请求: {json.dumps(payload, indent=2, ensure_ascii=False)}")

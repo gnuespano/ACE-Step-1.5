@@ -42,9 +42,6 @@ from acestep.openrouter_models import (
 MODEL_PREFIX = "acestep"
 DEFAULT_AUDIO_FORMAT = "mp3"
 
-# Audio response format: "openrouter" or "openai"
-AUDIO_RESPONSE_FORMAT = os.environ.get("AUDIO_RESPONSE_FORMAT", "openrouter")
-
 # Generation timeout for non-streaming requests (seconds)
 GENERATION_TIMEOUT = int(os.environ.get("ACESTEP_GENERATION_TIMEOUT", "600"))
 
@@ -90,17 +87,6 @@ def _audio_to_base64_url(audio_path: str, audio_format: str = "mp3") -> str:
 
     b64_data = base64.b64encode(audio_data).decode("utf-8")
     return f"data:{mime_type};base64,{b64_data}"
-
-
-def _audio_to_base64(audio_path: str) -> str:
-    """Convert audio file to pure base64 string (without data URL prefix)."""
-    if not audio_path or not os.path.exists(audio_path):
-        return ""
-
-    with open(audio_path, "rb") as f:
-        audio_data = f.read()
-
-    return base64.b64encode(audio_data).decode("utf-8")
 
 
 def _format_lm_content(result: Dict[str, Any]) -> str:
@@ -403,7 +389,7 @@ def _to_generate_music_request(
         thinking=req.thinking if req.thinking is not None else False,
 
         # Generation parameters
-        inference_steps=req.inference_steps if req.inference_steps is not None else 8,
+        inference_steps=8,
         guidance_scale=req.guidance_scale if req.guidance_scale is not None else 7.0,
         seed=resolved_seed,
         use_random_seed=use_random_seed,
@@ -456,22 +442,12 @@ def _build_openrouter_response(
     if raw_audio_paths:
         audio_path = raw_audio_paths[0]
         if audio_path and os.path.exists(audio_path):
-            lyrics_text = result.get("lyrics", "")
-
-            if AUDIO_RESPONSE_FORMAT == "openai":
-                b64_data = _audio_to_base64(audio_path)
-                if b64_data:
-                    audio_obj = {
-                        "data": b64_data,
-                        "transcript": lyrics_text,
-                    }
-            else:
-                b64_url = _audio_to_base64_url(audio_path, audio_format)
-                if b64_url:
-                    audio_obj = [{
-                        "type": "audio_url",
-                        "audio_url": {"url": b64_url},
-                    }]
+            b64_url = _audio_to_base64_url(audio_path, audio_format)
+            if b64_url:
+                audio_obj = [{
+                    "type": "audio_url",
+                    "audio_url": {"url": b64_url},
+                }]
 
     response_data = {
         "id": completion_id,
@@ -575,26 +551,14 @@ async def _openrouter_stream_generator(
             if raw_audio_paths:
                 audio_path = raw_audio_paths[0]
                 if audio_path and os.path.exists(audio_path):
-                    lyrics_text = result.get("lyrics", "")
-
-                    if AUDIO_RESPONSE_FORMAT == "openai":
-                        b64_data = _audio_to_base64(audio_path)
-                        if b64_data:
-                            audio_obj = {
-                                "data": b64_data,
-                                "transcript": lyrics_text,
-                            }
-                            yield _make_chunk(audio=audio_obj)
-                            await asyncio.sleep(0)
-                    else:
-                        b64_url = _audio_to_base64_url(audio_path, audio_format)
-                        if b64_url:
-                            audio_list = [{
-                                "type": "audio_url",
-                                "audio_url": {"url": b64_url},
-                            }]
-                            yield _make_chunk(audio=audio_list)
-                            await asyncio.sleep(0)
+                    b64_url = _audio_to_base64_url(audio_path, audio_format)
+                    if b64_url:
+                        audio_list = [{
+                            "type": "audio_url",
+                            "audio_url": {"url": b64_url},
+                        }]
+                        yield _make_chunk(audio=audio_list)
+                        await asyncio.sleep(0)
 
     # Finish
     yield _make_chunk(finish_reason="stop")
