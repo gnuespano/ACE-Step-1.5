@@ -395,9 +395,21 @@ class AceStepHandler:
             acestep_v15_checkpoint_path = os.path.join(checkpoint_dir, config_path)
             if os.path.exists(acestep_v15_checkpoint_path):
                 # Determine attention implementation
+                # IMPORTANT: Flash attention is CUDA-only and will crash if invoked on CPU
+                # Disable flash attention if:
+                # 1. Device is CPU
+                # 2. Offload to CPU is enabled (model may run on CPU during preprocessing)
                 if use_flash_attention and self.is_flash_attention_available():
-                    attn_implementation = "flash_attention_2"
-                    self.dtype = torch.bfloat16
+                    if device == "cpu":
+                        logger.warning("[initialize_service] Flash attention requested but device is CPU. Falling back to sdpa.")
+                        attn_implementation = "sdpa"
+                    elif offload_to_cpu:
+                        logger.warning("[initialize_service] Flash attention requested but CPU offload is enabled. "
+                                     "Model may run on CPU during preprocessing. Falling back to sdpa to prevent crashes.")
+                        attn_implementation = "sdpa"
+                    else:
+                        attn_implementation = "flash_attention_2"
+                        self.dtype = torch.bfloat16
                 else:
                     attn_implementation = "sdpa"
 
@@ -1076,11 +1088,16 @@ class AceStepHandler:
         return os.path.dirname(os.path.dirname(current_file))
     
     def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
-        """Get VAE dtype based on device."""
+        """Get VAE dtype based on device.
+        
+        Returns bfloat16 for GPU devices (cuda/xpu/mps) for optimal performance.
+        Returns float32 for CPU to avoid extremely slow bfloat16 operations on CPU.
+        """
         device = device or self.device
         if device in ["cuda", "xpu", "mps"]:
             return torch.bfloat16
-        return self.dtype
+        # Use float32 on CPU - bfloat16 on CPU is extremely slow (especially on Windows)
+        return torch.float32
     
     def _format_instruction(self, instruction: str) -> str:
         """Format instruction to ensure it ends with colon."""
