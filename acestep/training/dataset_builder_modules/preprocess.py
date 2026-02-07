@@ -91,13 +91,15 @@ class PreprocessMixin:
 
                     with torch.no_grad():
                         t0 = debug_start_verbose_for("dataset", f"vae_encode[{i}]")
+                        # Note: VAE processes audio in vae_dtype (float32 on CPU, bfloat16 on GPU)
+                        # but output is converted to dtype for consistency with other preprocessing outputs
                         target_latents = vae_encode(vae, audio, dtype)
                         debug_end_verbose_for("dataset", f"vae_encode[{i}]", t0)
 
                 # After VAE context exits, target_latents are on whatever device VAE left them
-                # Create attention_mask on the same device as target_latents for consistency
+                # Create attention_mask on the same device and dtype as target_latents for consistency
                 latent_length = target_latents.shape[1]
-                attention_mask = torch.ones(1, latent_length, device=target_latents.device, dtype=dtype)
+                attention_mask = torch.ones(1, latent_length, device=target_latents.device, dtype=target_latents.dtype)
                 debug_log_verbose_for(
                     "dataset",
                     f"target_latents shape={tuple(target_latents.shape)} latent_length={latent_length}",
