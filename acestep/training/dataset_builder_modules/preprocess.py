@@ -94,8 +94,10 @@ class PreprocessMixin:
                         target_latents = vae_encode(vae, audio, dtype)
                         debug_end_verbose_for("dataset", f"vae_encode[{i}]", t0)
 
+                # After VAE context exits, target_latents are on whatever device VAE left them
+                # Create attention_mask on the same device as target_latents for consistency
                 latent_length = target_latents.shape[1]
-                attention_mask = torch.ones(1, latent_length, device=device, dtype=dtype)
+                attention_mask = torch.ones(1, latent_length, device=target_latents.device, dtype=dtype)
                 debug_log_verbose_for(
                     "dataset",
                     f"target_latents shape={tuple(target_latents.shape)} latent_length={latent_length}",
