@@ -85,7 +85,7 @@ class AceStepHandler:
         self.offload_dit_to_cpu = False
         self.compiled = False
         self.current_offload_cost = 0.0
-        self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not sys.stderr.isatty()
+        self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not getattr(sys.stderr, 'isatty', lambda: False)()
         self.debug_stats = os.environ.get("ACESTEP_DEBUG_STATS", "").lower() in ("1", "true", "yes")
         self._last_diffusion_per_step_sec: Optional[float] = None
         self._progress_estimates_lock = threading.Lock()
