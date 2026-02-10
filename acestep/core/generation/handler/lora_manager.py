@@ -1,5 +1,6 @@
 """LoRA management mixin for AceStepHandler."""
 
+import math
 import os
 from typing import Any, Dict
 
@@ -22,6 +23,10 @@ class LoraManagerMixin:
             self._lora_adapter_registry = {}
         if not hasattr(self, "_lora_active_adapter"):
             self._lora_active_adapter = None
+        if not hasattr(self, "_lora_scale_state"):
+            self._lora_scale_state = {}
+        if not hasattr(self, "_lora_last_scale_report"):
+            self._lora_last_scale_report = {}
 
     def _debug_lora_registry_snapshot(self, max_targets_per_adapter: int = 20) -> Dict[str, Any]:
         """Return debugger-friendly snapshot of LoRA adapter registry."""
@@ -54,64 +59,82 @@ class LoraManagerMixin:
 
     def _collect_adapter_names(self) -> list[str]:
         """Best-effort adapter name discovery across PEFT runtime variants."""
-        names: list[str] = []
         decoder = getattr(self.model, "decoder", None)
         if decoder is None:
-            return names
+            return []
 
-        def _append_name(value):
-            if isinstance(value, str) and value and value not in names:
-                names.append(value)
+        def _extract_names(value) -> list[str]:
+            names: list[str] = []
 
-        def _walk(value):
-            if value is None:
-                return
-            if isinstance(value, str):
-                _append_name(value)
-                return
-            if isinstance(value, dict):
-                for k in value.keys():
-                    _append_name(k)
-                return
-            if isinstance(value, (list, tuple, set)):
-                for item in value:
-                    _walk(item)
-                return
-            if hasattr(value, "keys") and callable(value.keys):
-                try:
-                    for k in value.keys():
+            def _append_name(v):
+                if isinstance(v, str) and v and v not in names:
+                    names.append(v)
+
+            def _walk(v):
+                if v is None:
+                    return
+                if isinstance(v, str):
+                    _append_name(v)
+                    return
+                if isinstance(v, dict):
+                    for k in v.keys():
                         _append_name(k)
-                except Exception:
-                    pass
-            if hasattr(value, "adapters"):
-                _walk(getattr(value, "adapters"))
-            if hasattr(value, "adapter_names"):
-                _walk(getattr(value, "adapter_names"))
+                    return
+                if isinstance(v, (list, tuple, set)):
+                    for item in v:
+                        _walk(item)
+                    return
+                if hasattr(v, "keys") and callable(v.keys):
+                    try:
+                        for k in v.keys():
+                            _append_name(k)
+                    except Exception:
+                        pass
+                if hasattr(v, "adapters"):
+                    _walk(getattr(v, "adapters"))
+                if hasattr(v, "adapter_names"):
+                    _walk(getattr(v, "adapter_names"))
+                if hasattr(v, "to_dict") and callable(v.to_dict):
+                    try:
+                        _walk(v.to_dict())
+                    except Exception:
+                        pass
 
-        # Common PEFT surface area
+            _walk(value)
+            # Keep discovery order stable within each source group.
+            return list(dict.fromkeys(names))
+
+        ordered: list[str] = []
+        source_groups: list[list[str]] = []
+
+        # Preserve source priority: get_adapter_names > active_adapter > active_adapters > peft_config.
         if hasattr(decoder, "get_adapter_names") and callable(decoder.get_adapter_names):
             try:
-                _walk(decoder.get_adapter_names())
+                source_groups.append(_extract_names(decoder.get_adapter_names()))
+            except Exception:
+                pass
+
+        if hasattr(decoder, "active_adapter"):
+            try:
+                source_groups.append(_extract_names(decoder.active_adapter))
             except Exception:
                 pass
 
         if hasattr(decoder, "active_adapters"):
             try:
                 active = decoder.active_adapters
-                _walk(active() if callable(active) else active)
-            except Exception:
-                pass
-
-        if hasattr(decoder, "active_adapter"):
-            try:
-                _walk(decoder.active_adapter)
+                source_groups.append(_extract_names(active() if callable(active) else active))
             except Exception:
                 pass
 
         if hasattr(decoder, "peft_config"):
-            _walk(getattr(decoder, "peft_config"))
+            source_groups.append(_extract_names(getattr(decoder, "peft_config")))
 
-        return names
+        for group in source_groups:
+            for name in group:
+                if name not in ordered:
+                    ordered.append(name)
+        return ordered
 
     @staticmethod
     def _is_lora_like_module(name: str, module) -> bool:
@@ -133,10 +156,59 @@ class LoraManagerMixin:
         )
         return has_lora_signals and has_scaling_api
 
+    @staticmethod
+    def _read_adapter_value(value, adapter: str):
+        """Read adapter-specific value from mapping-like or scalar containers."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value.get(adapter)
+        if hasattr(value, "keys") and callable(value.keys):
+            try:
+                return value.get(adapter)
+            except Exception:
+                return None
+        if isinstance(value, (int, float)):
+            return value
+        return None
+
+    @staticmethod
+    def _is_peft_factor_set_scale_module(module) -> bool:
+        """Detect modules where set_scale(adapter, factor) semantics are expected."""
+        return (
+            hasattr(module, "set_scale")
+            and hasattr(module, "lora_alpha")
+            and hasattr(module, "r")
+        )
+
+    def _get_peft_initial_scale(self, module, adapter: str) -> float | None:
+        """Return PEFT LoRA baseline scale (alpha/r or alpha/sqrt(r)) for adapter."""
+        try:
+            alpha = self._read_adapter_value(getattr(module, "lora_alpha", None), adapter)
+            r_val = self._read_adapter_value(getattr(module, "r", None), adapter)
+            if not isinstance(alpha, (int, float)) or not isinstance(r_val, (int, float)):
+                return None
+            if not r_val:
+                return None
+            use_rslora_raw = getattr(module, "use_rslora", False)
+            if isinstance(use_rslora_raw, dict):
+                use_rslora = bool(use_rslora_raw.get(adapter, False))
+            else:
+                use_rslora = bool(use_rslora_raw)
+            return (alpha / math.sqrt(r_val)) if use_rslora else (alpha / r_val)
+        except Exception as e:
+            debug_log(
+                lambda: f"Failed to compute initial scale (adapter={adapter}, err={e})",
+                mode=DEBUG_MODEL_LOADING,
+                prefix="lora",
+            )
+            return None
+
     def _rebuild_lora_registry(self, lora_path: str | None = None) -> tuple[int, list[str]]:
         """Build explicit adapter->target mapping used for deterministic scaling."""
         self._ensure_lora_registry()
         self._lora_adapter_registry = {}
+        self._lora_scale_state = {}
 
         adapter_names = self._collect_adapter_names()
         if not adapter_names:
@@ -155,7 +227,32 @@ class LoraManagerMixin:
             if not self._is_lora_like_module(module_name, module):
                 continue
 
-            # Path 1: direct scaling dict keyed by adapter name.
+            # Path 1 (preferred): PEFT LoRA set_scale(adapter, factor).
+            if self._is_peft_factor_set_scale_module(module):
+                for adapter in adapter_names:
+                    base_factor = None
+                    scaling = getattr(module, "scaling", None)
+                    current_scale = self._read_adapter_value(scaling, adapter)
+                    initial_scale = self._get_peft_initial_scale(module, adapter)
+                    if (
+                        isinstance(current_scale, (int, float))
+                        and isinstance(initial_scale, (int, float))
+                        and initial_scale != 0
+                    ):
+                        base_factor = float(current_scale) / float(initial_scale)
+                    self._lora_adapter_registry[adapter]["targets"].append(
+                        {
+                            "module": module,
+                            "kind": "set_scale_factor",
+                            "adapter": adapter,
+                            "module_name": module_name,
+                            "base_factor": base_factor,
+                            "anchored": isinstance(base_factor, (int, float)),
+                        }
+                    )
+                continue
+
+            # Path 2: direct scaling dict keyed by adapter name.
             if hasattr(module, "scaling") and isinstance(module.scaling, dict):
                 for adapter in adapter_names:
                     if adapter in module.scaling:
@@ -165,36 +262,41 @@ class LoraManagerMixin:
                                 "kind": "scaling_dict",
                                 "adapter": adapter,
                                 "module_name": module_name,
+                                "base_scale": module.scaling[adapter],
                             }
                         )
                 continue
 
-            # Path 2: adapter-aware method API.
+            # Path 3: unknown set_scale semantics; only use when we can anchor on observed base.
             if hasattr(module, "set_scale"):
                 for adapter in adapter_names:
+                    base_scale = self._read_adapter_value(getattr(module, "scaling", None), adapter)
                     self._lora_adapter_registry[adapter]["targets"].append(
                         {
                             "module": module,
-                            "kind": "set_scale",
+                            "kind": "set_scale_unknown",
                             "adapter": adapter,
                             "module_name": module_name,
+                            "base_scale": base_scale,
                         }
                     )
                 continue
 
-            # Path 3: adapter-agnostic scaling API (safe only for single-adapter).
+            # Path 4: adapter-agnostic scaling API (safe only for single-adapter).
             if hasattr(module, "scale_layer") and len(adapter_names) == 1:
                 adapter = adapter_names[0]
+                base_scale = self._read_adapter_value(getattr(module, "scaling", None), adapter)
                 self._lora_adapter_registry[adapter]["targets"].append(
                     {
                         "module": module,
                         "kind": "scale_layer",
                         "module_name": module_name,
+                        "base_scale": float(base_scale) if isinstance(base_scale, (int, float)) else None,
                     }
                 )
                 continue
 
-            # Path 4: scalar scaling API (safe only for single-adapter).
+            # Path 5: scalar scaling API (safe only for single-adapter).
             if hasattr(module, "scaling") and isinstance(module.scaling, (int, float)) and len(adapter_names) == 1:
                 adapter = adapter_names[0]
                 self._lora_adapter_registry[adapter]["targets"].append(
@@ -202,6 +304,7 @@ class LoraManagerMixin:
                         "module": module,
                         "kind": "scaling_scalar",
                         "module_name": module_name,
+                        "base_scale": float(module.scaling),
                     }
                 )
 
@@ -217,48 +320,116 @@ class LoraManagerMixin:
         self._ensure_lora_registry()
         meta = self._lora_adapter_registry.get(adapter_name)
         if not meta:
+            self._lora_last_scale_report = {
+                "adapter": adapter_name,
+                "modified_total": 0,
+                "modified_by_kind": {},
+                "skipped_by_kind": {"no_registry": 1},
+            }
             return 0
 
         modified = 0
+        modified_by_kind: Dict[str, int] = {}
+        skipped_by_kind: Dict[str, int] = {}
         for target in meta.get("targets", []):
             module = target.get("module")
             kind = target.get("kind")
             if module is None:
+                skipped_by_kind[kind] = skipped_by_kind.get(kind, 0) + 1
                 continue
 
             try:
                 if kind == "scaling_dict":
                     adapter = target.get("adapter")
                     if adapter not in module.scaling:
+                        skipped_by_kind[kind] = skipped_by_kind.get(kind, 0) + 1
                         continue
-                    if not hasattr(module, "_acestep_original_scaling_dict"):
-                        module._acestep_original_scaling_dict = {k: v for k, v in module.scaling.items()}
-                    module.scaling[adapter] = module._acestep_original_scaling_dict[adapter] * scale
+                    base_scale = target.get("base_scale", module.scaling[adapter])
+                    module.scaling[adapter] = base_scale * scale
                     modified += 1
-                elif kind == "set_scale":
-                    module.set_scale(adapter_name, scale)
-                    modified += 1
-                elif kind == "scale_layer":
-                    if hasattr(module, "unscale_layer"):
-                        module.unscale_layer()
-                        module.scale_layer(scale)
+                    modified_by_kind[kind] = modified_by_kind.get(kind, 0) + 1
+                elif kind == "set_scale_factor":
+                    base_factor = target.get("base_factor", None)
+                    anchored = bool(target.get("anchored", False))
+                    if anchored and isinstance(base_factor, (int, float)):
+                        factor = base_factor * scale
+                        module.set_scale(adapter_name, factor)
                         modified += 1
+                        modified_by_kind[kind] = modified_by_kind.get(kind, 0) + 1
                     else:
-                        prev = getattr(module, "_acestep_last_scale", None)
-                        if isinstance(prev, (int, float)) and prev > 0:
-                            module.scale_layer(scale / prev)
-                        else:
-                            module.scale_layer(scale)
-                        module._acestep_last_scale = float(scale)
+                        skipped_by_kind["set_scale_factor_unanchored"] = skipped_by_kind.get(
+                            "set_scale_factor_unanchored", 0
+                        ) + 1
+                        logger.warning(
+                            f"Skipping set_scale_factor target without anchor "
+                            f"(adapter={adapter_name}, module={target.get('module_name')})"
+                        )
+                elif kind == "set_scale_unknown":
+                    # Unknown third-party semantics: anchor to observed base when available.
+                    base_scale = target.get("base_scale", None)
+                    if isinstance(base_scale, (int, float)):
+                        module.set_scale(adapter_name, base_scale * scale)
                         modified += 1
+                        modified_by_kind[kind] = modified_by_kind.get(kind, 0) + 1
+                    else:
+                        skipped_by_kind[kind] = skipped_by_kind.get(kind, 0) + 1
+                        logger.warning(
+                            f"Skipping set_scale target with unknown semantics and no base "
+                            f"(adapter={adapter_name}, module={target.get('module_name')})"
+                        )
+                        debug_log(
+                            lambda: (
+                                f"Skipped unanchored set_scale target "
+                                f"(adapter={adapter_name}, module={target.get('module_name')})"
+                            ),
+                            mode=DEBUG_MODEL_LOADING,
+                            prefix="lora",
+                        )
+                elif kind == "scale_layer":
+                    base_scale = target.get("base_scale", None)
+                    desired = (base_scale * scale) if isinstance(base_scale, (int, float)) else scale
+                    if hasattr(module, "unscale_layer"):
+                        kind_key = kind
+                        if base_scale is None:
+                            # Applied with fallback baseline: report separately from "skipped".
+                            kind_key = "scale_layer_fallback"
+                        # For PEFT LoRA layers this resets to initial scale deterministically.
+                        module.unscale_layer()
+                        module.scale_layer(desired)
+                        modified += 1
+                        modified_by_kind[kind_key] = modified_by_kind.get(kind_key, 0) + 1
+                    else:
+                        if base_scale is None:
+                            skipped_by_kind["scale_layer_unanchored"] = skipped_by_kind.get("scale_layer_unanchored", 0) + 1
+                            logger.warning(
+                                f"Skipping unanchored scale_layer target without unscale_layer "
+                                f"(adapter={adapter_name}, module={target.get('module_name')})"
+                            )
+                            continue
+                        state_key = (id(module), kind, adapter_name)
+                        prev = self._lora_scale_state.get(state_key)
+                        if isinstance(prev, (int, float)) and prev > 0:
+                            module.scale_layer(desired / prev)
+                        else:
+                            module.scale_layer(desired)
+                        self._lora_scale_state[state_key] = float(desired)
+                        modified += 1
+                        modified_by_kind[kind] = modified_by_kind.get(kind, 0) + 1
                 elif kind == "scaling_scalar":
-                    if not hasattr(module, "_acestep_original_scaling_scalar"):
-                        module._acestep_original_scaling_scalar = float(module.scaling)
-                    module.scaling = module._acestep_original_scaling_scalar * scale
+                    base_scale = target.get("base_scale", float(module.scaling))
+                    module.scaling = base_scale * scale
                     modified += 1
+                    modified_by_kind[kind] = modified_by_kind.get(kind, 0) + 1
             except Exception:
+                skipped_by_kind[kind] = skipped_by_kind.get(kind, 0) + 1
                 continue
 
+        self._lora_last_scale_report = {
+            "adapter": adapter_name,
+            "modified_total": modified,
+            "modified_by_kind": modified_by_kind,
+            "skipped_by_kind": skipped_by_kind,
+        }
         return modified
 
     def load_lora(self, lora_path: str) -> str:
@@ -357,6 +528,7 @@ class LoraManagerMixin:
             self._ensure_lora_registry()
             self._lora_adapter_registry = {}
             self._lora_active_adapter = None
+            self._lora_scale_state = {}
 
             logger.info("LoRA unloaded, base decoder restored")
             return "✅ LoRA unloaded, using base model"
@@ -427,16 +599,22 @@ class LoraManagerMixin:
             )
 
             modified_count = self._apply_scale_to_adapter(active_adapter, self.lora_scale) if active_adapter else 0
+            report = getattr(self, "_lora_last_scale_report", {})
 
             if modified_count > 0 and active_adapter:
                 logger.info(
                     f"LoRA scale set to {self.lora_scale:.2f} "
-                    f"(adapter={active_adapter}, modified={modified_count})"
+                    f"(adapter={active_adapter}, modified={modified_count}, "
+                    f"by_kind={report.get('modified_by_kind', {})}, skipped={report.get('skipped_by_kind', {})})"
                 )
+                skipped_total = sum(report.get("skipped_by_kind", {}).values())
+                if skipped_total > 0:
+                    return f"✅ LoRA scale: {self.lora_scale:.2f} (skipped {skipped_total} targets)"
                 return f"✅ LoRA scale: {self.lora_scale:.2f}"
             else:
                 logger.warning(
-                    "No registered LoRA scaling targets found for active adapter"
+                    f"No registered LoRA scaling targets found for active adapter "
+                    f"(skipped={report.get('skipped_by_kind', {})})"
                 )
                 return f"⚠️ Scale set to {self.lora_scale:.2f} (no modules found)"
         except Exception as e:
