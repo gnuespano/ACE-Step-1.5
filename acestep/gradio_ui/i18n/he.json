@@ -53,10 +53,16 @@
     "compile_model_info": "השתמש ב-torch.compile לאופטימיזציה של המודל (נדרש עבור קוונטיזציה)",
     "quantization_label": "קוונטיזציה INT8",
     "quantization_info": "הפעל קוונטיזציה של משקולות בלבד (INT8) להפחתת שימוש ב-VRAM (דורש הידור מודל)",
+    "mlx_dit_label": "MLX DiT (Apple Silicon)",
+    "mlx_dit_info_enabled": "השתמש ב-MLX מקורי להפצת DiT על Apple Silicon (מהיר יותר מ-MPS)",
+    "mlx_dit_info_disabled": "MLX לא זמין (דורש macOS + Apple Silicon + חבילת mlx)",
     "init_btn": "אתחול שירות",
     "status_label": "מצב",
     "language_label": "שפת ממשק",
-    "language_info": "בחר את שפת הממשק"
+    "language_info": "בחר את שפת הממשק",
+    "gpu_auto_tier": "שכבה שזוהתה אוטומטית",
+    "tier_label": "דריסת שכבת GPU",
+    "tier_info": "בחר שכבת GPU באופן ידני כדי להתאים ברירות מחדל של אופטימיזציה (העברה, קוונטיזציה, מנוע וכו')"
   },
   "generation": {
     "required_inputs": "📝 קלטים נדרשים",

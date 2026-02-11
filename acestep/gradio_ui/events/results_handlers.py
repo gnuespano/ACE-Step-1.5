@@ -2318,3 +2318,4 @@ def restore_batch_parameters(current_batch_index, batch_queue):
         track_name, complete_track_classes,
         enable_normalization, normalization_db
     )
+

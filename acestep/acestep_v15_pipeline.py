@@ -36,7 +36,8 @@ try:
     from .llm_inference import LLMHandler
     from .dataset_handler import DatasetHandler
     from .gradio_ui import create_gradio_interface
-    from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB
+    from .gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
+    from .model_downloader import ensure_lm_model
 except ImportError:
     # When executed as a script: `python acestep/acestep_v15_pipeline.py`
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,7 +47,8 @@ except ImportError:
     from acestep.llm_inference import LLMHandler
     from acestep.dataset_handler import DatasetHandler
     from acestep.gradio_ui import create_gradio_interface
-    from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB
+    from acestep.gpu_config import get_gpu_config, get_gpu_memory_gb, print_gpu_config_info, set_global_gpu_config, VRAM_16GB_MIN_GB, VRAM_AUTO_OFFLOAD_THRESHOLD_GB, is_mps_platform
+    from acestep.model_downloader import ensure_lm_model
 
 
 def create_demo(init_params=None, language='en'):
@@ -91,7 +93,14 @@ def main():
     set_global_gpu_config(gpu_config)  # Set global config for use across modules
     
     gpu_memory_gb = gpu_config.gpu_memory_gb
-    auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
+    _is_mac = is_mps_platform()
+    # Enable auto-offload for GPUs below 20 GB.  16 GB GPUs cannot hold all
+    # models simultaneously (DiT ~4.7 + VAE ~0.3 + text_enc ~1.2 + LM ≥1.2 +
+    # activations) so they *must* offload.  The old threshold of 16 GB caused
+    # 16 GB GPUs to never offload, leading to OOM.
+    # Mac (Apple Silicon) uses unified memory — offloading provides no benefit.
+    auto_offload = (not _is_mac) and gpu_memory_gb > 0 and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
+    _default_backend = "mlx" if _is_mac else "vllm"
     
     # Print GPU configuration info
     print(f"\n{'='*60}")
@@ -107,10 +116,12 @@ def main():
     print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
     print(f"{'='*60}\n")
     
-    if auto_offload:
-        print(f"Auto-enabling CPU offload (GPU < 16GB)")
+    if _is_mac:
+        print(f"Apple Silicon (MPS) detected — unified memory {gpu_memory_gb:.1f}GB, no CPU offload needed, backend={_default_backend}")
+    elif auto_offload:
+        print(f"Auto-enabling CPU offload (GPU {gpu_memory_gb:.1f}GB < {VRAM_AUTO_OFFLOAD_THRESHOLD_GB}GB threshold)")
     elif gpu_memory_gb > 0:
-        print(f"CPU offload disabled by default (GPU >= 16GB)")
+        print(f"CPU offload disabled by default (GPU {gpu_memory_gb:.1f}GB >= {VRAM_AUTO_OFFLOAD_THRESHOLD_GB}GB threshold)")
     else:
         print("No GPU detected, running on CPU")
 
@@ -146,7 +157,7 @@ def main():
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "xpu", "cpu"], help="Processing device (default: auto)")
     parser.add_argument("--init_llm", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Initialize 5Hz LM (default: auto based on GPU memory)")
     parser.add_argument("--lm_model_path", type=str, default=None, help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')")
-    parser.add_argument("--backend", type=str, default="vllm", choices=["vllm", "pt", "mlx"], help="5Hz LM backend (default: vllm, use 'mlx' for native Apple Silicon acceleration)")
+    parser.add_argument("--backend", type=str, default=_default_backend, choices=["vllm", "pt", "mlx"], help=f"5Hz LM backend (default: {_default_backend}, use 'mlx' for native Apple Silicon acceleration)")
     parser.add_argument("--use_flash_attention", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Use flash attention (default: auto-detect)")
     parser.add_argument("--offload_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=auto_offload, help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)")
     parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Offload DiT to CPU (default: False)")
@@ -202,6 +213,19 @@ def main():
         if 0 < gpu_memory_gb <= 24:
             args.offload_to_cpu = True
             print(f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)")
+
+    # Safety: on 16GB GPUs, prevent selecting LM models that are too large.
+    # Even with offloading, a 4B LM (8 GB weights + KV cache) leaves almost no
+    # headroom for DiT activations on a 16 GB card.
+    if args.lm_model_path and 0 < gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB:
+        if "4B" in args.lm_model_path:
+            # Downgrade to 1.7B if available
+            fallback = args.lm_model_path.replace("4B", "1.7B")
+            print(
+                f"WARNING: 4B LM model is too large for {gpu_memory_gb:.0f}GB GPU. "
+                f"Downgrading to 1.7B variant: {fallback}"
+            )
+            args.lm_model_path = fallback
 
     try:
         init_params = None
@@ -280,6 +304,22 @@ def main():
                 
                 if args.init_llm and args.lm_model_path:
                     checkpoint_dir = os.path.join(project_root, "checkpoints")
+
+                    # Ensure LM model is downloaded before initialization
+                    prefer_source = None
+                    if args.download_source and args.download_source != "auto":
+                        prefer_source = args.download_source
+                    try:
+                        dl_ok, dl_msg = ensure_lm_model(
+                            model_name=args.lm_model_path,
+                            checkpoints_dir=checkpoint_dir,
+                            prefer_source=prefer_source,
+                        )
+                        if not dl_ok:
+                            print(f"Warning: LM model download failed: {dl_msg}", file=sys.stderr)
+                    except Exception as e:
+                        print(f"Warning: Failed to download LM model: {e}", file=sys.stderr)
+
                     print(f"Initializing 5Hz LM: {args.lm_model_path} on {args.device}...")
                     lm_status, lm_success = llm_handler.initialize(
                         checkpoint_dir=checkpoint_dir,
