@@ -422,29 +422,51 @@ def send_audio_to_src_with_metadata(audio_file, lm_metadata):
 
 def send_audio_to_remix(audio_file, lm_metadata):
     """Send generated audio to src_audio and switch mode to Remix.
+    Also populate lyrics and caption fields from the generated audio.
     
     Returns:
-        Tuple of (src_audio, generation_mode)
+        Tuple of (src_audio, generation_mode, lyrics, caption)
     """
     if audio_file is None:
-        return (gr.skip(),) * 2
+        return (gr.skip(),) * 4
+    
+    # Extract lyrics and caption from lm_metadata if available
+    lyrics = ""
+    caption = ""
+    if lm_metadata and isinstance(lm_metadata, dict):
+        lyrics = lm_metadata.get("lyrics", "")
+        caption = lm_metadata.get("caption", "")
+    
     return (
         audio_file,                       # src_audio
         gr.update(value="Remix"),         # generation_mode -> Remix
+        lyrics,                           # lyrics
+        caption,                          # caption
     )
 
 
 def send_audio_to_repaint(audio_file, lm_metadata):
     """Send generated audio to src_audio and switch mode to Repaint.
+    Also populate lyrics field with lyrics from the generated audio.
     
     Returns:
-        Tuple of (src_audio, generation_mode)
+        Tuple of (src_audio, generation_mode, lyrics, caption)
     """
     if audio_file is None:
-        return (gr.skip(),) * 2
+        return (gr.skip(),) * 4
+    
+    # Extract lyrics and caption from lm_metadata if available
+    lyrics = ""
+    caption = ""
+    if lm_metadata and isinstance(lm_metadata, dict):
+        lyrics = lm_metadata.get("lyrics", "")
+        caption = lm_metadata.get("caption", "")
+    
     return (
         audio_file,                       # src_audio
         gr.update(value="Repaint"),       # generation_mode -> Repaint
+        lyrics,                           # lyrics
+        caption,                          # caption
     )
 
 
