@@ -375,6 +375,8 @@ PARAM_ALIASES = {
     "use_cot_language": ["use_cot_language", "cot_language", "cot-language"],
     "is_format_caption": ["is_format_caption", "isFormatCaption"],
     "allow_lm_batch": ["allow_lm_batch", "allowLmBatch", "parallel_thinking"],
+    "track_name": ["track_name", "trackName"],
+    "track_classes": ["track_classes", "trackClasses", "instruments"],
 }
 
 
@@ -520,6 +522,8 @@ class GenerateMusicRequest(BaseModel):
     use_cot_language: bool = True
     is_format_caption: bool = False
     allow_lm_batch: bool = True
+    track_name: Optional[str] = None
+    track_classes: Optional[List[str]] = None
 
     lm_temperature: float = 0.85
     lm_cfg_scale: float = 2.5
@@ -1513,7 +1517,25 @@ def create_app() -> FastAPI:
                 # This matches gradio behavior which uses TASK_INSTRUCTIONS for each task type
                 instruction_to_use = req.instruction
                 if instruction_to_use == DEFAULT_DIT_INSTRUCTION and req.task_type in TASK_INSTRUCTIONS:
-                    instruction_to_use = TASK_INSTRUCTIONS[req.task_type]
+                    raw_instruction = TASK_INSTRUCTIONS[req.task_type]
+                    
+                    if req.task_type == "complete":
+                         #  Use track_classes joined by pipes
+                         if req.track_classes:
+                             # Join list items: ["Drums", "Bass"] -> "DRUMS | BASS"
+                             classes_str = " | ".join([str(t).upper() for t in req.track_classes])
+                             # Use the raw instruction template from constants
+                             # Format: "Complete the track with {TRACK_CLASSES}:"
+                             instruction_to_use = raw_instruction.format(TRACK_CLASSES=classes_str)
+                         else:
+                             # Fallback if no classes provided
+                             instruction_to_use = TASK_INSTRUCTIONS.get("complete_default", raw_instruction)
+
+                    elif "{TRACK_NAME}" in raw_instruction and req.track_name:
+                        # Logic for extract/lego
+                        instruction_to_use = raw_instruction.format(TRACK_NAME=req.track_name.upper())
+                    else:
+                        instruction_to_use = raw_instruction
 
                 # Build GenerationParams using unified interface
                 # Note: thinking controls LM code generation, sample_mode only affects CoT metas
@@ -2216,6 +2238,11 @@ def create_app() -> FastAPI:
             # when callers (multipart/form, url-encoded, raw body) pass them explicitly.
             ref_audio = kwargs.pop("reference_audio_path", None) or p.str("reference_audio_path") or None
             src_audio = kwargs.pop("src_audio_path", None) or p.str("src_audio_path") or None
+
+            t_classes = p.get("track_classes")
+            if t_classes is not None and isinstance(t_classes, str):
+                t_classes = [t_classes]
+
             return GenerateMusicRequest(
                 prompt=p.str("prompt"),
                 lyrics=p.str("lyrics"),
@@ -2264,6 +2291,8 @@ def create_app() -> FastAPI:
                 use_cot_language=p.bool("use_cot_language", True),
                 is_format_caption=p.bool("is_format_caption"),
                 allow_lm_batch=p.bool("allow_lm_batch", True),
+                track_name=p.str("track_name"),
+                track_classes=t_classes,
                 **kwargs,
             )
 
@@ -2296,7 +2325,16 @@ def create_app() -> FastAPI:
 
         elif content_type.startswith("multipart/form-data"):
             form = await request.form()
-            form_dict = {k: v for k, v in form.items() if not hasattr(v, 'read')}
+            
+            # Parse form data correctly to support lists ---
+            form_dict = {}
+            for k in form.keys():
+                vals = [v for v in form.getlist(k) if not hasattr(v, 'read')]
+                if len(vals) == 1:
+                    form_dict[k] = vals[0]
+                elif len(vals) > 1:
+                    form_dict[k] = vals
+
             verify_token_from_request(form_dict, authorization)
 
             # Support both naming conventions: ref_audio/reference_audio, ctx_audio/src_audio
@@ -2319,7 +2357,7 @@ def create_app() -> FastAPI:
                 src_audio_path = _validate_audio_path(str(form.get("ctx_audio_path") or form.get("src_audio_path") or "").strip() or None)
 
             req = _build_request(
-                RequestParser(dict(form)),
+                RequestParser(dict(form_dict)),
                 reference_audio_path=reference_audio_path,
                 src_audio_path=src_audio_path,
             )
