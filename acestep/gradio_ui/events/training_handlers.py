@@ -17,6 +17,11 @@ from acestep.training.dataset_builder import DatasetBuilder, AudioSample
 from acestep.debug_utils import debug_log_for, debug_start_for, debug_end_for
 from acestep.gpu_config import get_global_gpu_config
 
+# Define a safe root directory for all training-related filesystem operations.
+# This limits user-supplied paths (for checkpoints, exports, etc.) to stay
+# within the server's working tree, preventing directory traversal outside it.
+SAFE_TRAINING_ROOT = os.path.abspath(os.getcwd())
+
 
 def create_dataset_builder() -> DatasetBuilder:
     """Create a new DatasetBuilder instance."""
@@ -805,6 +810,34 @@ def start_training(
         training_state["is_training"] = False
         yield f"❌ Error: {str(e)}", str(e), _training_loss_figure({}, [], []), training_state
 
+def _safe_join(base_root: str, user_path: str) -> Optional[str]:
+    """Safely join a user-supplied path to a base root, preventing escapes.
+    
+    Returns an absolute path within base_root, or None if the path is invalid.
+    """
+    if not user_path:
+        return None
+    # Normalize whitespace
+    candidate = user_path.strip()
+    if not candidate:
+        return None
+    # Disallow absolute paths outright; force everything under base_root
+    if os.path.isabs(candidate):
+        return None
+    # Join with base_root and normalize to an absolute path
+    abs_root = os.path.abspath(base_root)
+    joined = os.path.abspath(os.path.join(abs_root, candidate))
+    try:
+        common = os.path.commonpath([abs_root, joined])
+    except ValueError:
+        # Different drives on Windows or other path issues
+        return None
+    if common != abs_root:
+        # Attempted to escape the allowed root
+        return None
+    return joined
+
+
 
 def stop_training(training_state: Dict) -> Tuple[str, Dict]:
     """Stop the current training process.
@@ -830,10 +863,15 @@ def export_lora(
     """
     if not export_path or not export_path.strip():
         return "❌ Please enter an export path"
+    # Resolve and validate the base LoRA output directory within the safe root
+    safe_lora_dir = _safe_join(SAFE_TRAINING_ROOT, lora_output_dir)
+    if safe_lora_dir is None:
+        return "❌ Invalid LoRA output directory"
+    
     
     # Check if there's a trained model to export
-    final_dir = os.path.join(lora_output_dir, "final")
-    checkpoint_dir = os.path.join(lora_output_dir, "checkpoints")
+    final_dir = os.path.join(safe_lora_dir, "final")
+    checkpoint_dir = os.path.join(safe_lora_dir, "checkpoints")
     
     # Prefer final, fallback to checkpoints
     if os.path.exists(final_dir):
@@ -848,20 +886,26 @@ def export_lora(
         latest = checkpoints[-1]
         source_path = os.path.join(checkpoint_dir, latest)
     else:
+    # Resolve and validate the export destination within the safe root
+    safe_export_path = _safe_join(SAFE_TRAINING_ROOT, export_path)
+    if safe_export_path is None:
+        return "❌ Invalid export path"
+    
         return f"❌ No trained model found in {lora_output_dir}"
     
     try:
         import shutil
         
-        export_path = export_path.strip()
-        os.makedirs(os.path.dirname(export_path) if os.path.dirname(export_path) else ".", exist_ok=True)
+        # Ensure parent directory exists
+        parent_dir = os.path.dirname(safe_export_path) or "."
+        os.makedirs(parent_dir, exist_ok=True)
         
-        if os.path.exists(export_path):
-            shutil.rmtree(export_path)
+        if os.path.exists(safe_export_path):
+            shutil.rmtree(safe_export_path)
         
-        shutil.copytree(source_path, export_path)
+        shutil.copytree(source_path, safe_export_path)
         
-        return f"✅ LoRA exported to {export_path}"
+        return f"✅ LoRA exported to {safe_export_path}"
         
     except Exception as e:
         logger.exception("Export error")
