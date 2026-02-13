@@ -31,7 +31,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
     
     generation_section["config_path"].change(
         fn=gen_h.update_model_type_settings,
-        inputs=[generation_section["config_path"]],
+        inputs=[generation_section["config_path"], generation_section["generation_mode"]],
         outputs=[
             generation_section["inference_steps"],
             generation_section["guidance_scale"],
@@ -77,6 +77,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["compile_model_checkbox"],
             generation_section["quantization_checkbox"],
             generation_section["mlx_dit_checkbox"],
+            generation_section["generation_mode"],  # preserve current mode across init
         ],
         outputs=[
             generation_section["init_status"], 
@@ -351,6 +352,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["load_file_col"],
             generation_section["load_file"],
             generation_section["audio_cover_strength"],
+            generation_section["cover_noise_strength"],
         ]
     )
     
@@ -441,6 +443,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["use_cot_caption"],
             generation_section["use_cot_language"],
             generation_section["audio_cover_strength"],
+            generation_section["cover_noise_strength"],
             generation_section["think_checkbox"],
             generation_section["text2music_audio_code_string"],
             generation_section["repainting_start"],
@@ -531,32 +534,61 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         js=download_existing_js  # Run the above JS
     )
     # ========== Send to Remix / Repaint Handlers ==========
+    # Mode-UI outputs shared with generation_mode.change — applied atomically
+    # so we don't rely on a chained .change() event for visibility/label updates.
+    _mode_ui_outputs = [
+        generation_section["simple_mode_group"],
+        generation_section["custom_mode_group"],
+        generation_section["generate_btn"],
+        generation_section["simple_sample_created"],
+        generation_section["optional_params_accordion"],
+        generation_section["task_type"],
+        generation_section["src_audio_row"],
+        generation_section["repainting_group"],
+        generation_section["text2music_audio_codes_group"],
+        generation_section["track_name"],
+        generation_section["complete_track_classes"],
+        generation_section["generate_btn_row"],
+        generation_section["generation_mode"],
+        generation_section["results_wrapper"],
+        generation_section["think_checkbox"],
+        generation_section["load_file_col"],
+        generation_section["load_file"],
+        generation_section["audio_cover_strength"],
+        generation_section["cover_noise_strength"],
+    ]
     for btn_idx in range(1, 9):
         results_section[f"send_to_remix_btn_{btn_idx}"].click(
-            fn=res_h.send_audio_to_remix,
+            fn=lambda audio, lm, ly, cap: res_h.send_audio_to_remix(
+                audio, lm, ly, cap, llm_handler),
             inputs=[
                 results_section[f"generated_audio_{btn_idx}"],
-                results_section["lm_metadata_state"]
+                results_section["lm_metadata_state"],
+                generation_section["lyrics"],
+                generation_section["captions"],
             ],
             outputs=[
                 generation_section["src_audio"],
                 generation_section["generation_mode"],
                 generation_section["lyrics"],
                 generation_section["captions"],
-            ]
+            ] + _mode_ui_outputs,
         )
         results_section[f"send_to_repaint_btn_{btn_idx}"].click(
-            fn=res_h.send_audio_to_repaint,
+            fn=lambda audio, lm, ly, cap: res_h.send_audio_to_repaint(
+                audio, lm, ly, cap, llm_handler),
             inputs=[
                 results_section[f"generated_audio_{btn_idx}"],
-                results_section["lm_metadata_state"]
+                results_section["lm_metadata_state"],
+                generation_section["lyrics"],
+                generation_section["captions"],
             ],
             outputs=[
                 generation_section["src_audio"],
                 generation_section["generation_mode"],
                 generation_section["lyrics"],
                 generation_section["captions"],
-            ]
+            ] + _mode_ui_outputs,
         )
     
     # ========== Score Calculation Handlers ==========
@@ -663,6 +695,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["repainting_end"],
             generation_section["instruction_display_gen"],
             generation_section["audio_cover_strength"],
+            generation_section["cover_noise_strength"],
             generation_section["task_type"],
             generation_section["use_adg"],
             generation_section["cfg_interval_start"],
@@ -855,6 +888,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["repainting_end"],
             generation_section["instruction_display_gen"],
             generation_section["audio_cover_strength"],
+            generation_section["cover_noise_strength"],
             generation_section["task_type"],
             generation_section["use_adg"],
             generation_section["cfg_interval_start"],

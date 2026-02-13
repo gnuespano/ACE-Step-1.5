@@ -630,6 +630,17 @@ class AceStepHandler(
                     return f"❌ Failed to download DiT model '{config_path}': {msg}", False
                 logger.info(f"[initialize_service] {msg}")
 
+            # Check if model code files are up-to-date with GitHub repo versions
+            from acestep.model_downloader import _check_code_mismatch, _sync_model_code_files
+            mismatched = _check_code_mismatch(config_path, checkpoint_path)
+            if mismatched:
+                logger.warning(
+                    f"[initialize_service] Model code mismatch detected for '{config_path}': "
+                    f"{mismatched}. Auto-syncing from acestep/models/..."
+                )
+                _sync_model_code_files(config_path, checkpoint_path)
+                logger.info(f"[initialize_service] Model code files synced successfully.")
+
             # 1. Load main model
             # config_path is relative path (e.g., "acestep-v15-turbo"), concatenate to checkpoints directory
             acestep_v15_checkpoint_path = os.path.join(checkpoint_dir, config_path)
@@ -887,6 +898,7 @@ class AceStepHandler(
         instructions: Optional[List[str]] = None,
         audio_code_hints: Optional[List[Optional[str]]] = None,
         audio_cover_strength: float = 1.0,
+        cover_noise_strength: float = 0.0,
     ) -> Dict[str, Any]:
         """
         Prepare batch data with fallbacks for missing inputs.
@@ -1475,6 +1487,7 @@ class AceStepHandler(
         repainting_end: Optional[Union[float, List[float]]] = None,
         instructions: Optional[Union[str, List[str]]] = None,
         audio_cover_strength: float = 1.0,
+        cover_noise_strength: float = 0.0,
         use_adg: bool = False,
         cfg_interval_start: float = 0.0,
         cfg_interval_end: float = 1.0,
@@ -1503,6 +1516,7 @@ class AceStepHandler(
             repainting_end: End time(s) for repainting region in seconds (optional)
             instructions: Instruction text(s) for generation (optional)
             audio_cover_strength: Strength of audio cover mode (default: 1.0)
+            cover_noise_strength: Strength of cover noise init (0=pure noise, 1=closest to src audio) (default: 0.0)
             use_adg: Whether to use ADG (Adaptive Diffusion Guidance) (default: False)
             cfg_interval_start: Start of CFG interval (0.0-1.0, default: 0.0)
             cfg_interval_end: End of CFG interval (0.0-1.0, default: 1.0)
@@ -1593,6 +1607,7 @@ class AceStepHandler(
             instructions=instructions,
             audio_code_hints=audio_code_hints,
             audio_cover_strength=audio_cover_strength,
+            cover_noise_strength=cover_noise_strength,
         )
         
         processed_data = self.preprocess_batch(batch)
@@ -1647,6 +1662,7 @@ class AceStepHandler(
             "non_cover_text_attention_mask": non_cover_text_attention_masks,
             "precomputed_lm_hints_25Hz": precomputed_lm_hints_25Hz,
             "audio_cover_strength": audio_cover_strength,
+            "cover_noise_strength": cover_noise_strength,
             "infer_method": infer_method,
             "infer_steps": infer_steps,
             "diffusion_guidance_sale": guidance_scale,
@@ -2295,6 +2311,7 @@ class AceStepHandler(
         repainting_end: Optional[float] = None,
         instruction: str = DEFAULT_DIT_INSTRUCTION,
         audio_cover_strength: float = 1.0,
+        cover_noise_strength: float = 0.0,
         task_type: str = "text2music",
         use_adg: bool = False,
         cfg_interval_start: float = 0.0,
@@ -2470,6 +2487,7 @@ class AceStepHandler(
                     repainting_end=repainting_end_batch,
                     instructions=instructions_batch,  # Pass instructions to service
                     audio_cover_strength=audio_cover_strength,  # Pass audio cover strength
+                    cover_noise_strength=cover_noise_strength,  # Pass cover noise strength
                     use_adg=use_adg,  # Pass use_adg parameter
                     cfg_interval_start=cfg_interval_start,  # Pass CFG interval start
                     cfg_interval_end=cfg_interval_end,  # Pass CFG interval end
