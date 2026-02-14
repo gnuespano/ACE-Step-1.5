@@ -302,6 +302,14 @@ if "$GIT_PATH" merge-base --is-ancestor HEAD "origin/$CURRENT_BRANCH" 2>/dev/nul
             echo
         fi
 
+        # Post-update dependency sync
+        if command -v uv &>/dev/null && [[ -d "$SCRIPT_DIR/.venv" ]]; then
+            echo "[5/5] Syncing dependencies with uv..."
+            echo
+            cd "$SCRIPT_DIR" && uv sync
+            echo
+        fi
+
         echo "Please restart the application to use the new version."
         exit 0
     else

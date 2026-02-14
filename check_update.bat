@@ -485,6 +485,24 @@ if "%CURRENT_COMMIT%"=="%REMOTE_COMMIT%" (
                     echo.
                 )
 
+                REM === Post-update dependency sync ===
+                if exist "%~dp0python_embeded\python.exe" (
+                    echo [5/5] Checking dependencies for embedded Python...
+                    echo.
+                    "%~dp0python_embeded\python.exe" "%~dp0update_deps.py"
+                    echo.
+                ) else (
+                    where uv >nul 2>&1
+                    if !ERRORLEVEL! EQU 0 (
+                        if exist "%~dp0.venv" (
+                            echo [5/5] Syncing dependencies with uv...
+                            echo.
+                            uv sync
+                            echo.
+                        )
+                    )
+                )
+
                 echo Please restart the application to use the new version.
                 echo.
                 echo ========================================
