@@ -516,6 +516,7 @@ ACESTEP_INIT_LLM=false
 | `--server-name` | 127.0.0.1 | Server address (use `0.0.0.0` for network access) |
 | `--share` | false | Create public Gradio link |
 | `--language` | en | UI language: `en`, `zh`, `he`, `ja` |
+| `--batch_size` | 2 | Default batch size for generation (1-8, GPU-limited) |
 | `--init_service` | false | Auto-initialize models on startup |
 | `--init_llm` | auto | LLM init: `true` / `false` / omit for auto |
 | `--config_path` | auto | DiT model (e.g., `acestep-v15-turbo`) |
@@ -535,6 +536,9 @@ uv run acestep --server-name 0.0.0.0 --share --language zh
 
 # Pre-initialize models on startup
 uv run acestep --init_service true --config_path acestep-v15-turbo
+
+# Set default batch size to 4
+uv run acestep --batch_size 4
 
 # Enable API endpoints with authentication
 uv run acestep --enable-api --api-key sk-your-secret-key --port 8001
