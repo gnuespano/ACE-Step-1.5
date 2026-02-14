@@ -22,9 +22,25 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+import gc
+
 import torch
 
 logger = logging.getLogger(__name__)
+
+
+def _empty_gpu_cache() -> None:
+    """Release cached GPU memory (CUDA / MPS / XPU)."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        torch.xpu.empty_cache()
+    if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+        try:
+            torch.mps.empty_cache()
+        except Exception:
+            pass
 
 # Supported audio extensions (same as upstream)
 _AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".opus", ".m4a"}
@@ -109,6 +125,9 @@ def preprocess_audio_files(
         progress_callback=progress_callback,
         cancel_check=cancel_check,
     )
+
+    # Free any residual GPU memory before loading the heavy DIT model
+    _empty_gpu_cache()
 
     # -- Pass 2: DIT Encoder ------------------------------------------------
     processed, pass2_failed = _pass2_heavy(
@@ -435,6 +454,9 @@ def _pass1_light(
                 with torch.no_grad():
                     target_latents = _tiled_vae_encode(vae, audio, dtype)
 
+                del audio  # free GPU audio tensor before text encoding
+                _empty_gpu_cache()
+
                 latent_length = target_latents.shape[1]
                 attention_mask = torch.ones(1, latent_length, device=device, dtype=dtype)
 
@@ -592,6 +614,8 @@ def _pass2_heavy(
 
                 processed += 1
                 logger.info("[Side-Step] Pass 2 OK: %s", tmp_path.stem)
+
+                _empty_gpu_cache()
 
             except Exception as exc:
                 failed += 1
