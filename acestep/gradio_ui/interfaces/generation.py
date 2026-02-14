@@ -421,7 +421,7 @@ def create_advanced_settings_section(dit_handler, llm_handler, init_params=None,
         with gr.Accordion(t("generation.advanced_output_section"), open=False, elem_classes=["has-info-container"]):
             with gr.Row():
                 audio_format = gr.Dropdown(
-                    choices=[("FLAC", "flac"), ("MP3", "mp3"), ("WAV (16-bit)", "wav"), ("WAV (32-bit Float)", "wav32")],
+                    choices=[("FLAC", "flac"), ("MP3", "mp3"), ("Opus", "opus"), ("AAC", "aac"), ("WAV (16-bit)", "wav"), ("WAV (32-bit Float)", "wav32")],
                     value="mp3",
                     label=t("generation.audio_format_label"),
                     info=t("generation.audio_format_info"), elem_classes=["has-info-container"],

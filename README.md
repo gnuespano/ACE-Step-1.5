@@ -134,6 +134,22 @@ chmod +x start_gradio_ui.sh && ./start_gradio_ui.sh
 chmod +x start_gradio_ui_macos.sh && ./start_gradio_ui_macos.sh
 ```
 
+### ⚙️ Customizing Launch Settings
+
+**Recommended:** Create a `.env` file to customize models, ports, and other settings. Your `.env` configuration will survive repository updates.
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit with your preferred settings
+# Examples in .env:
+ACESTEP_CONFIG_PATH=acestep-v15-turbo
+ACESTEP_LM_MODEL_PATH=acestep-5Hz-lm-1.7B
+PORT=7860
+LANGUAGE=en
+```
+
 > 📖 **Script configuration & customization:** [English](./docs/en/INSTALL.md#-launch-scripts) | [中文](./docs/zh/INSTALL.md#-启动脚本) | [日本語](./docs/ja/INSTALL.md#-起動スクリプト)
 
 ## 📚 Documentation

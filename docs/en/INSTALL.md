@@ -452,9 +452,20 @@ uv run acestep --backend pt
 
 ## Environment Variables (.env)
 
+The `.env` file provides a centralized way to configure ACE-Step. Settings in `.env` are:
+- Used by Python scripts (CLI, API server, Gradio UI)
+- **Now also used by launcher scripts** (`start_gradio_ui.bat`, `start_gradio_ui.sh`, etc.)
+- **Preserved across repository updates** (unlike hardcoded values in launcher scripts)
+
 ```bash
 cp .env.example .env   # Copy and edit
 ```
+
+### Benefits of Using .env
+
+✅ **Survives Updates**: Your custom model paths and settings won't be overwritten when you update ACE-Step  
+✅ **Cross-Platform**: Same configuration works on Windows, Linux, and macOS  
+✅ **Version Control Safe**: `.env` is in `.gitignore`, so your personal settings stay private
 
 ### Key Variables
 
@@ -465,6 +476,9 @@ cp .env.example .env   # Copy and edit
 | `ACESTEP_LM_MODEL_PATH` | model name | LM model path |
 | `ACESTEP_DOWNLOAD_SOURCE` | `auto` / `huggingface` / `modelscope` | Download source |
 | `ACESTEP_API_KEY` | string | API authentication key |
+| `PORT` | number | Server port (default: 7860) |
+| `SERVER_NAME` | IP address | Server host (default: 127.0.0.1) |
+| `LANGUAGE` | `en` / `zh` / `he` / `ja` | UI language (default: en) |
 
 ### LLM Initialization (`ACESTEP_INIT_LLM`)
 
