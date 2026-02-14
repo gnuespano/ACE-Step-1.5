@@ -478,8 +478,12 @@ def update_model_type_settings(config_path, current_mode=None):
     return get_model_type_ui_settings(is_turbo, current_mode=current_mode, is_pure_base=is_pure_base)
 
 
-def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, device, init_llm, lm_model_path, backend, use_flash_attention, offload_to_cpu, offload_dit_to_cpu, compile_model, quantization, mlx_dit=True, current_mode=None):
-    """Wrapper for service initialization, returns status, button state, accordion state, model type settings, and GPU-config-aware UI limits."""
+def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, device, init_llm, lm_model_path, backend, use_flash_attention, offload_to_cpu, offload_dit_to_cpu, compile_model, quantization, mlx_dit=True, current_mode=None, current_batch_size=None):
+    """Wrapper for service initialization, returns status, button state, accordion state, model type settings, and GPU-config-aware UI limits.
+    
+    Args:
+        current_batch_size: Current batch size value from UI to preserve after reinitialization (optional)
+    """
     # Convert quantization checkbox to value (int8_weight_only if checked, None if not)
     quant_value = "int8_weight_only" if quantization else None
     
@@ -576,8 +580,16 @@ def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, devi
         info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min.",
         elem_classes=["has-info-container"],
     )
+    
+    # Preserve current batch size if provided, otherwise use default of min(2, max_batch)
+    # Clamp to new maximum to avoid Gradio validation error
+    if current_batch_size is not None and current_batch_size > 0:
+        batch_value = min(int(current_batch_size), max_batch)
+    else:
+        batch_value = min(2, max_batch)
+    
     batch_update = gr.update(
-        value=min(2, max_batch),  # Clamp value to new maximum to avoid Gradio validation error
+        value=batch_value,
         maximum=max_batch,
         info=f"Number of samples to generate (Max: {max_batch}).",
         elem_classes=["has-info-container"],
