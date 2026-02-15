@@ -15,7 +15,7 @@ from loguru import logger
 import torch
 
 
-from acestep.audio_utils import AudioSaver, generate_uuid_from_params, normalize_audio
+from acestep.audio_utils import AudioSaver, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -659,6 +659,7 @@ def generate_music(
             audio_params["lora_loaded"] = dit_handler.lora_loaded
             audio_params["use_lora"] = dit_handler.use_lora
             audio_params["lora_scale"] = dit_handler.lora_scale
+            audio_params["lora_weights_hash"] = get_lora_weights_hash(dit_handler)
 
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")

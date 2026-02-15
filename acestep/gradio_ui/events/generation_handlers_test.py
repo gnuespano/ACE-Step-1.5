@@ -195,6 +195,66 @@ class GenerationHandlersTests(unittest.TestCase):
 
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
+class LoadMetadataLmCodesTests(unittest.TestCase):
+    """Tests that load_metadata sets think=False when audio_codes are present."""
+
+    def _write_json(self, tmpdir, data):
+        """Write a JSON file and return a SimpleNamespace with .name pointing to it."""
+        import json, os
+        path = os.path.join(tmpdir, "test.json")
+        with open(path, "w") as f:
+            json.dump(data, f)
+        return SimpleNamespace(name=path)
+
+    @patch("acestep.gradio_ui.events.generation_handlers.gr.Info")
+    @patch("acestep.gradio_ui.events.generation_handlers.get_global_gpu_config")
+    def test_think_set_false_when_audio_codes_present(self, gpu_mock, info_mock):
+        """When JSON has thinking=True AND non-empty audio_codes, think should be False."""
+        import tempfile
+        gpu_cfg = MagicMock()
+        gpu_cfg.max_batch_size_with_lm = 8
+        gpu_cfg.max_batch_size_without_lm = 8
+        gpu_mock.return_value = gpu_cfg
+
+        llm_handler = SimpleNamespace(llm_initialized=True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_obj = self._write_json(tmpdir, {
+                "thinking": True,
+                "audio_codes": "<|audio_code_1|><|audio_code_2|>",
+            })
+            result = generation_handlers.load_metadata(file_obj, llm_handler)
+
+        # think is at return position 30 (0-indexed)
+        think_value = result[30]
+        audio_codes_value = result[31]
+        self.assertFalse(think_value, "think should be False when audio_codes present")
+        self.assertEqual(audio_codes_value, "<|audio_code_1|><|audio_code_2|>")
+
+    @patch("acestep.gradio_ui.events.generation_handlers.gr.Info")
+    @patch("acestep.gradio_ui.events.generation_handlers.get_global_gpu_config")
+    def test_think_unchanged_when_audio_codes_empty(self, gpu_mock, info_mock):
+        """When JSON has thinking=True AND empty audio_codes, think stays True."""
+        import tempfile
+        gpu_cfg = MagicMock()
+        gpu_cfg.max_batch_size_with_lm = 8
+        gpu_cfg.max_batch_size_without_lm = 8
+        gpu_mock.return_value = gpu_cfg
+
+        llm_handler = SimpleNamespace(llm_initialized=True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_obj = self._write_json(tmpdir, {
+                "thinking": True,
+                "audio_codes": "",
+            })
+            result = generation_handlers.load_metadata(file_obj, llm_handler)
+
+        think_value = result[30]
+        self.assertTrue(think_value, "think should remain True when audio_codes is empty")
+
+
+@unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
 class AutoCheckboxTests(unittest.TestCase):
     """Tests for optional-parameter Auto checkbox handler functions."""
 
