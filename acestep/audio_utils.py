@@ -326,7 +326,7 @@ def get_lora_weights_hash(dit_handler) -> str:
     if lora_service is None or not lora_service.registry:
         return ""
 
-    md5 = hashlib.md5()
+    hash_obj = hashlib.sha256()
     found_any = False
 
     for adapter_name in sorted(lora_service.registry.keys()):
@@ -356,12 +356,12 @@ def get_lora_weights_hash(dit_handler) -> str:
                         chunk = f.read(1 << 20)  # 1 MB chunks
                         if not chunk:
                             break
-                        md5.update(chunk)
+                        hash_obj.update(chunk)
                 found_any = True
             except OSError:
                 continue
 
-    return md5.hexdigest() if found_any else ""
+    return hash_obj.hexdigest() if found_any else ""
 
 
 def get_audio_file_hash(audio_file) -> str:
