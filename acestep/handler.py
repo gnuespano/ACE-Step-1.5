@@ -63,7 +63,7 @@ from acestep.core.generation.handler import (
     ServiceGenerateExecuteMixin,
     ServiceGenerateOutputsMixin,
 )
-from acestep.gpu_config import get_gpu_memory_gb, get_global_gpu_config, get_effective_free_vram_gb
+from acestep.gpu_config import get_gpu_memory_gb, get_global_gpu_config, get_effective_free_vram_gb, update_gpu_config_for_model_type
 
 
 warnings.filterwarnings("ignore")
@@ -894,6 +894,11 @@ class AceStepHandler(
             status_msg += f"Offload DiT to CPU: {self.offload_dit_to_cpu}\n"
             status_msg += f"MLX DiT: {mlx_dit_status}\n"
             status_msg += f"MLX VAE: {mlx_vae_status}"
+            
+            # Update GPU config batch limits based on actual loaded model type
+            # Base models require CFG which doubles VRAM per batch, so they need lower limits
+            is_turbo = self.is_turbo_model()
+            update_gpu_config_for_model_type(is_turbo)
 
             # Persist latest successful init settings for mode switching (e.g. training preset).
             self.last_init_params = {

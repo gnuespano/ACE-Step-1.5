@@ -1207,3 +1207,36 @@ def set_global_gpu_config(config: GPUConfig):
     """Set the global GPU configuration."""
     global _global_gpu_config
     _global_gpu_config = config
+
+
+def update_gpu_config_for_model_type(is_turbo: bool):
+    """
+    Update the global GPU config batch size limits based on loaded model type.
+    
+    Base models require CFG (2x forward passes), consuming more VRAM per batch item.
+    This function recomputes batch size limits using the correct dit_type after
+    model initialization, ensuring limits match actual VRAM requirements.
+    
+    Args:
+        is_turbo: True if loaded model is turbo (no CFG), False if base (with CFG)
+    """
+    global _global_gpu_config
+    if _global_gpu_config is None:
+        logger.warning("[update_gpu_config_for_model_type] Global GPU config not initialized yet")
+        return
+    
+    dit_type = "turbo" if is_turbo else "base"
+    total_vram_gb = _global_gpu_config.gpu_memory_gb
+    
+    # Recompute batch sizes using compute_adaptive_config with correct dit_type
+    updated_config = compute_adaptive_config(total_vram_gb, dit_type=dit_type)
+    
+    # Update only the batch size fields, preserving other config settings
+    _global_gpu_config.max_batch_size_with_lm = updated_config.max_batch_size_with_lm
+    _global_gpu_config.max_batch_size_without_lm = updated_config.max_batch_size_without_lm
+    
+    logger.info(
+        f"[update_gpu_config_for_model_type] Updated batch limits for {'turbo' if is_turbo else 'base'} model: "
+        f"with_lm={_global_gpu_config.max_batch_size_with_lm}, "
+        f"without_lm={_global_gpu_config.max_batch_size_without_lm}"
+    )
