@@ -1719,9 +1719,14 @@ class AceStepHandler(
                 refer_audios = [[torch.zeros(2, 30*self.sample_rate)] for _ in range(actual_batch_size)]
             
             # 2. Process source audio
-            # If audio_code_string is provided, ignore src_audio and use codes instead
+            # text2music (Custom mode) never uses src_audio — it operates on
+            # LM-generated audio codes or user-provided LM Codes Hints only.
+            # If audio_code_string is provided, ignore src_audio and use codes instead.
             processed_src_audio = None
-            if src_audio is not None:
+            if task_type == "text2music":
+                if src_audio is not None:
+                    logger.info("[generate_music] text2music task does not use src_audio, ignoring")
+            elif src_audio is not None:
                 # Check if audio codes are provided - if so, ignore src_audio
                 if _has_audio_codes(audio_code_string):
                     logger.info("[generate_music] Audio codes provided, ignoring src_audio and using codes instead")

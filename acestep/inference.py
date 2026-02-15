@@ -592,7 +592,9 @@ def generate_music(
             reference_audio=params.reference_audio,
             audio_duration=audio_duration,
             batch_size=config.batch_size if config.batch_size is not None else 1,
-            src_audio=params.src_audio,
+            # text2music (Custom mode) never uses src_audio; force None to
+            # prevent stale UI values from leaking into generation.
+            src_audio=None if params.task_type == "text2music" else params.src_audio,
             audio_code_string=audio_code_string_to_use,
             repainting_start=params.repainting_start,
             repainting_end=params.repainting_end,

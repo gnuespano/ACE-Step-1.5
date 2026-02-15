@@ -605,6 +605,13 @@ def generate_with_progress(
     if parsed_timesteps is not None:
         actual_inference_steps = len(parsed_timesteps) - 1
     
+    # Custom (text2music) mode does not use source audio — it relies on
+    # LM-generated audio codes or user-provided LM Codes Hints only.
+    # The UI hides the src_audio widget but does not clear its value when
+    # switching back from Remix/Repaint, so we force it to None here.
+    if task_type == "text2music":
+        src_audio = None
+
     # step 1: prepare inputs
     # generate_music, GenerationParams, GenerationConfig
     gen_params = GenerationParams(
