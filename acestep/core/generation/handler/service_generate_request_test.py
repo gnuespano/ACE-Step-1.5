@@ -277,7 +277,8 @@ class ServiceGenerateRequestMixinTests(unittest.TestCase):
         # Batch size should be clamped to 8
         self.assertEqual(len(out["captions"]), 8)
         self.assertEqual(out["captions"], captions[:8])
-        # Single values should be expanded to clamped batch size (8)
+        # Single values are converted to single-item lists (not expanded to batch size)
+        # This matches the original behavior - only lyrics/instructions/audio_code_hints expand
         self.assertEqual(len(out["keys"]), 1)  # Single value becomes list of 1
         self.assertEqual(out["keys"], ["single_key"])
         self.assertEqual(len(out["metas"]), 1)  # Single value becomes list of 1
