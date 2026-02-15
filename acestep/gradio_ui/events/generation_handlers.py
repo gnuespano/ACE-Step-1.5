@@ -183,6 +183,11 @@ def load_metadata(file_obj, llm_handler=None):
             think = False
             gr.Warning(t("messages.think_requires_lm"))
         audio_codes = metadata.get('audio_codes', '')
+        # When JSON has LM-generated audio codes AND thinking was True,
+        # set think=False so the loaded codes are used directly for
+        # reproducibility instead of being discarded by a fresh LM pass.
+        if think and audio_codes and audio_codes.strip():
+            think = False
         repainting_start = metadata.get('repainting_start', 0.0)
         repainting_end = metadata.get('repainting_end', -1)
         track_name = metadata.get('track_name')
