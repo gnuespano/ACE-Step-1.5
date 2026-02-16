@@ -3928,8 +3928,8 @@ class LLMHandler:
 
                 # When offload_to_cpu is enabled, keep the model on CPU to save
                 # VRAM.  The caller (_load_scoring_model_context in
-                # test_time_scaling.py) will move it to the accelerator only for
-                # the duration of the forward pass.
+                # core/scoring/lm_score.py) will move it to the accelerator only
+                # for the duration of the forward pass.
                 if self.offload_to_cpu:
                     self._hf_model_for_scoring.eval()
                     logger.info("HuggingFace model for scoring kept on CPU (offload_to_cpu=True)")

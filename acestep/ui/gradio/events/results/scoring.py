@@ -53,7 +53,7 @@ def calculate_score_handler(
     Returns:
         Score display string.
     """
-    from acestep.test_time_scaling import calculate_pmi_score_per_condition
+    from acestep.core.scoring.lm_score import calculate_pmi_score_per_condition
 
     has_audio_codes = audio_codes_str and audio_codes_str.strip()
     has_dit_alignment_data = dit_handler and extra_tensor_data and lyrics and lyrics.strip()

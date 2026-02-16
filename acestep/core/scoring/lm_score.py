@@ -1,6 +1,9 @@
 """
-Test-Time Scaling Module
-Implements perplexity-based scoring for generated audio codes
+LM Perplexity / PMI Scoring Module
+
+Implements perplexity-based scoring for generated audio codes using a
+language model.  Provides PMI, top-k recall, metadata recall, and a
+composite reward score.
 """
 import contextlib
 import math
@@ -16,22 +19,22 @@ from typing import Tuple, Optional, Dict, Any, List
 def pmi_score(log_prob_conditional: float, log_prob_unconditional: float) -> float:
     """
     Calculate Pointwise Mutual Information (PMI) score.
-    
+
     PMI = log P(condition|codes) - log P(condition)
         = log [P(codes|condition) / P(codes)]
-    
+
     This removes the bias from P(condition) and measures how much the codes
     improve our ability to predict the condition.
-    
+
     Args:
         log_prob_conditional: Average log probability of condition given codes
         log_prob_unconditional: Average log probability of condition without codes
-        
+
     Returns:
         PMI score (higher is better, can be positive or negative)
-        - Positive: codes improve prediction → good match
-        - Zero: codes don't help → no correlation
-        - Negative: codes hurt prediction → poor match
+        - Positive: codes improve prediction -> good match
+        - Zero: codes don't help -> no correlation
+        - Negative: codes hurt prediction -> poor match
     """
     return log_prob_conditional - log_prob_unconditional
 
@@ -39,27 +42,27 @@ def pmi_score(log_prob_conditional: float, log_prob_unconditional: float) -> flo
 def pmi_to_normalized_score(pmi: float, scale: float = 0.1) -> float:
     """
     Convert PMI score to normalized [0, 1] range using sigmoid function.
-    
+
     score = sigmoid(PMI / scale) = 1 / (1 + exp(-PMI / scale))
-    
+
     Args:
         pmi: PMI score (can be positive or negative)
         scale: Scale parameter to control sensitivity (default 0.1)
                - Smaller scale: more sensitive to PMI changes
                - Larger scale: less sensitive to PMI changes
-        
+
     Returns:
         Normalized score in [0, 1] range, where:
-        - PMI > 0 → score > 0.5 (good match)
-        - PMI = 0 → score = 0.5 (neutral)
-        - PMI < 0 → score < 0.5 (poor match)
-        
+        - PMI > 0 -> score > 0.5 (good match)
+        - PMI = 0 -> score = 0.5 (neutral)
+        - PMI < 0 -> score < 0.5 (poor match)
+
     Examples (scale=1.0):
-        PMI=2.0  → score≈0.88  (excellent)
-        PMI=1.0  → score≈0.73  (good)
-        PMI=0.0  → score=0.50  (neutral)
-        PMI=-1.0 → score≈0.27  (poor)
-        PMI=-2.0 → score≈0.12  (bad)
+        PMI=2.0  -> score~0.88  (excellent)
+        PMI=1.0  -> score~0.73  (good)
+        PMI=0.0  -> score=0.50  (neutral)
+        PMI=-1.0 -> score~0.27  (poor)
+        PMI=-2.0 -> score~0.12  (bad)
     """
     return 1.0 / (1.0 + math.exp(-pmi / scale))
 
@@ -73,14 +76,14 @@ def _load_scoring_model_context(llm_handler):
     For the ``pt`` backend the existing ``_load_model_context()`` already
     handles offloading, so we just delegate to it.  For ``vllm`` / ``mlx``
     backends, ``get_hf_model_for_scoring()`` caches a *separate* HF model
-    that would otherwise stay on GPU permanently — here we move it to GPU
+    that would otherwise stay on GPU permanently -- here we move it to GPU
     only for the duration of the scoring forward pass and move it back to
     CPU when done, freeing VRAM for DiT / VAE.
     """
     backend = getattr(llm_handler, "llm_backend", "pt")
 
     if backend == "pt":
-        # pt backend: _load_model_context already handles GPU ↔ CPU
+        # pt backend: _load_model_context already handles GPU <-> CPU
         with llm_handler._load_model_context():
             yield
         return
@@ -117,7 +120,7 @@ def _get_logits_and_target_for_scoring(llm_handler, formatted_prompt: str,
         llm_handler: The handler containing the model and tokenizer.
         formatted_prompt: The input context.
         target_text: The text we want to calculate probability/recall for.
-        
+
     Returns:
         Tuple of (target_logits, target_ids)
         - target_logits: Logits used to predict the target tokens.
@@ -127,7 +130,7 @@ def _get_logits_and_target_for_scoring(llm_handler, formatted_prompt: str,
     tokenizer = llm_handler.llm_tokenizer
 
     # Determine the device the model is *currently* on (it may be on CPU
-    # if offload_to_cpu is active — _load_scoring_model_context will move
+    # if offload_to_cpu is active -- _load_scoring_model_context will move
     # it to the accelerator before the forward pass).
     backend = getattr(llm_handler, "llm_backend", "pt")
     if backend == "pt":
@@ -162,7 +165,7 @@ def _get_logits_and_target_for_scoring(llm_handler, formatted_prompt: str,
             outputs = model(input_ids=input_ids, attention_mask=full_tokens['attention_mask'])
             all_logits = outputs.logits  # [1, seq_len, vocab_size]
 
-    # 4. Extract Logits and Labels — move to CPU so downstream scoring
+    # 4. Extract Logits and Labels -- move to CPU so downstream scoring
     #    does not keep large vocab-sized tensors on GPU.
     target_logits = all_logits[0, prompt_len - 1:-1, :].cpu()  # [target_len, vocab_size]
     target_ids = input_ids[0, prompt_len:].cpu()  # [target_len]
@@ -292,26 +295,26 @@ def calculate_reward_score(
 ) -> Tuple[float, str]:
     """
     Reward Model Calculator: Computes a final reward based on user priorities.
-    
+
     Priority Logic:
         1. Caption (Highest): The overall vibe/style must match.
         2. Lyrics (Medium): Content accuracy is important but secondary to vibe.
         3. Metadata (Lowest): Technical constraints (BPM, Key) allow for slight deviations.
-    
+
     Strategy: Dynamic Weighted Sum
     - Metadata fields are aggregated into a single 'metadata' score first.
     - Weights are dynamically renormalized if any component (e.g., lyrics) is missing.
-    
+
     Args:
         scores: Dictionary of raw scores (0.0 - 1.0) from the evaluation module.
         weights_config: Optional custom weights. Defaults to:
                         Caption (50%), Lyrics (30%), Metadata (20%).
-        
+
     Returns:
         final_reward: The calculated reward score (0.0 - 1.0).
         explanation: A formatted string explaining how the score was derived.
     """
-    
+
     # 1. Default Preference Configuration
     # These weights determine the relative importance of each component.
     if weights_config is None:
@@ -320,56 +323,56 @@ def calculate_reward_score(
             'lyrics':  0.30,  # Medium priority: Content
             'metadata': 0.20  # Low priority: Technical details
         }
-    
+
     # 2. Extract and Group Scores
     # Caption and Lyrics are standalone high-level features.
     caption_score = scores.get('caption')
     lyrics_score = scores.get('lyrics')
-    
+
     # Metadata fields (bpm, key, duration, etc.) are aggregated.
-    # We treat them as a single "Technical Score" to prevent them from 
+    # We treat them as a single "Technical Score" to prevent them from
     # diluting the weight of Caption/Lyrics simply by having many fields.
     meta_scores_list = [
-        val for key, val in scores.items() 
+        val for key, val in scores.items()
         if key not in ['caption', 'lyrics']
     ]
-    
+
     # Calculate average of all metadata fields (if any exist)
     meta_aggregate_score = None
     if meta_scores_list:
         meta_aggregate_score = sum(meta_scores_list) / len(meta_scores_list)
-    
+
     # 3. specific Active Components & Dynamic Weighting
     # We only include components that actually exist in this generation.
     active_components = {}
-    
+
     if caption_score is not None:
         active_components['caption'] = (caption_score, weights_config['caption'])
-        
+
     if lyrics_score is not None:
         active_components['lyrics'] = (lyrics_score, weights_config['lyrics'])
-        
+
     if meta_aggregate_score is not None:
         active_components['metadata'] = (meta_aggregate_score, weights_config['metadata'])
-    
+
     # 4. Calculate Final Weighted Score
     total_base_weight = sum(w for _, w in active_components.values())
     total_score = 0.0
-    
+
     breakdown_lines = []
-    
+
     if total_base_weight == 0:
         return 0.0, "❌ No valid scores available to calculate reward."
-    
+
     # Sort by weight (importance) for display
     sorted_components = sorted(active_components.items(), key=lambda x: x[1][1], reverse=True)
-    
+
     for name, (score, base_weight) in sorted_components:
         # Renormalize weight: If lyrics are missing, caption/metadata weights scale up proportionately.
         normalized_weight = base_weight / total_base_weight
         weighted_contribution = score * normalized_weight
         total_score += weighted_contribution
-        
+
         breakdown_lines.append(
             f"  • {name.title():<8} | Score: {score:.4f} | Weight: {normalized_weight:.2f} "
             f"-> Contrib: +{weighted_contribution:.4f}"
