@@ -189,13 +189,13 @@ class AceStepHandler(
         Returns True on success, False on failure (non-fatal).
         """
         try:
-            from acestep.mlx_dit import mlx_available
+            from acestep.models.mlx import mlx_available
             if not mlx_available():
                 logger.info("[MLX-DiT] MLX not available on this platform; skipping.")
                 return False
 
-            from acestep.mlx_dit.model import MLXDiTDecoder
-            from acestep.mlx_dit.convert import convert_and_load
+            from acestep.models.mlx.dit_model import MLXDiTDecoder
+            from acestep.models.mlx.dit_convert import convert_and_load
 
             mlx_decoder = MLXDiTDecoder.from_config(self.config)
             convert_and_load(self.model, mlx_decoder)
@@ -233,7 +233,7 @@ class AceStepHandler(
         Returns True on success, False on failure (non-fatal).
         """
         try:
-            from acestep.mlx_vae import mlx_available
+            from acestep.models.mlx import mlx_available
             if not mlx_available():
                 logger.info("[MLX-VAE] MLX not available on this platform; skipping.")
                 return False
@@ -241,8 +241,8 @@ class AceStepHandler(
             import os
             import mlx.core as mx
             from mlx.utils import tree_map
-            from acestep.mlx_vae.model import MLXAutoEncoderOobleck
-            from acestep.mlx_vae.convert import convert_and_load
+            from acestep.models.mlx.vae_model import MLXAutoEncoderOobleck
+            from acestep.models.mlx.vae_convert import convert_and_load
 
             mlx_vae = MLXAutoEncoderOobleck.from_pytorch_config(self.vae)
             convert_and_load(self.vae, mlx_vae)

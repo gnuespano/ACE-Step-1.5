@@ -236,7 +236,7 @@ def _create_service_config_content(dit_handler, llm_handler, defaults, init_para
                 info=t("service.quantization_info") + (" (recommended for this tier)" if default_quantization else " (optional for this tier)"), elem_classes=["has-info-container"],
             )
 
-            from acestep.mlx_dit import mlx_available as _mlx_avail
+            from acestep.models.mlx import mlx_available as _mlx_avail
             _mlx_ok = _mlx_avail()
             mlx_dit_value = init_params.get('mlx_dit', _mlx_ok) if service_pre_initialized else _mlx_ok
             mlx_dit_checkbox = gr.Checkbox(

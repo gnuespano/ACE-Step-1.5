@@ -116,7 +116,7 @@ def mlx_generate_diffusion(
         Dict with ``"target_latents"`` (numpy) and ``"time_costs"`` dict.
     """
     import mlx.core as mx
-    from .model import MLXCrossAttentionCache
+    from .dit_model import MLXCrossAttentionCache
 
     time_costs = {}
     total_start = time.time()

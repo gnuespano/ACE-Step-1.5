@@ -1,5 +1,5 @@
-# Native MLX implementation of the Oobleck VAE (AutoencoderOobleck) for Apple Silicon.
-# Provides pure MLX encode/decode with graceful fallback to PyTorch.
+# Native MLX implementations of AceStep models for Apple Silicon.
+# Provides pure MLX inference with graceful fallback to PyTorch.
 
 import logging
 import platform
