@@ -290,7 +290,8 @@
     "skipping_metas_cot": "⚡ Skipping Phase 1 metas COT (sample already formatted)",
     "invalid_timesteps_format": "⚠️ Invalid timesteps format. Using default schedule.",
     "timesteps_out_of_range": "⚠️ Timesteps must be in range [0, 1]. Using default schedule.",
-    "timesteps_count_mismatch": "⚠️ Timesteps count ({actual}) differs from inference_steps ({expected}). Using timesteps count."
+    "timesteps_count_mismatch": "⚠️ Timesteps count ({actual}) differs from inference_steps ({expected}). Using timesteps count.",
+    "audio_format_invalid": "{role} format is invalid or unsupported. Please upload a valid audio file."
   },
   "training": {
     "tab_title": "🎓 LoRA Training",

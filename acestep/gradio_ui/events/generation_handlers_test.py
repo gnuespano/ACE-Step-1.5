@@ -203,7 +203,7 @@ class GenerationHandlersTests(unittest.TestCase):
         """Invalid audio upload should emit warning toast and clear component value."""
         info_mock.side_effect = RuntimeError("bad file")
         result = generation_handlers.validate_uploaded_audio_file("broken.bin", "reference")
-        self.assertIsNone(result)
+        self.assertEqual(result.get("value"), None)
         warning_mock.assert_called_once()
 
     @patch("acestep.gradio_ui.events.generation_handlers.gr.Warning")
@@ -215,7 +215,7 @@ class GenerationHandlersTests(unittest.TestCase):
     ):
         """Valid audio upload should pass through unchanged without warning."""
         result = generation_handlers.validate_uploaded_audio_file("ok.wav", "reference")
-        self.assertEqual(result, "ok.wav")
+        self.assertEqual(result, {"__type__": "update"})
         info_mock.assert_called_once_with("ok.wav")
         warning_mock.assert_not_called()
 
@@ -229,9 +229,11 @@ class GenerationHandlersTests(unittest.TestCase):
         """Source-role validation should surface a source-specific toast message."""
         info_mock.side_effect = RuntimeError("bad file")
         result = generation_handlers.validate_uploaded_audio_file("broken.bin", "source")
-        self.assertIsNone(result)
+        self.assertEqual(result.get("value"), None)
+        expected_role = generation_handlers.t("generation.source_audio")
+        expected_message = generation_handlers.t("messages.audio_format_invalid", role=expected_role)
         warning_mock.assert_called_once_with(
-            "Source audio format is invalid or unsupported. Please upload a valid audio file."
+            expected_message
         )
 
 

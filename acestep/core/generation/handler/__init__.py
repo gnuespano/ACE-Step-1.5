@@ -24,6 +24,8 @@ from .service_generate_execute import ServiceGenerateExecuteMixin
 from .service_generate_outputs import ServiceGenerateOutputsMixin
 from .service_generate_request import ServiceGenerateRequestMixin
 from .task_utils import TaskUtilsMixin
+from .vae_decode import VaeDecodeMixin
+from .vae_decode_chunks import VaeDecodeChunksMixin
 from .vae_encode import VaeEncodeMixin
 from .vae_encode_chunks import VaeEncodeChunksMixin
 
@@ -52,6 +54,8 @@ __all__ = [
     "ServiceGenerateOutputsMixin",
     "ServiceGenerateRequestMixin",
     "TaskUtilsMixin",
+    "VaeDecodeMixin",
+    "VaeDecodeChunksMixin",
     "VaeEncodeMixin",
     "VaeEncodeChunksMixin",
 ]

@@ -930,7 +930,25 @@ def _has_reference_audio(reference_audio) -> bool:
 
 
 def _extract_audio_path(audio_value: Any) -> Optional[str]:
-    """Extract a filepath from Gradio audio values."""
+    """Extract normalized audio path from common Gradio audio input forms.
+
+    Accepted inputs:
+    - ``None``
+    - ``str`` path
+    - ``list``/``tuple`` where the first element may be a ``str`` path
+
+    Normalization:
+    - Strips surrounding whitespace from string values
+    - Returns ``None`` for empty strings and ``None`` inputs
+    - For list/tuple inputs, only the first element is considered, and only
+      if that element is a string
+
+    Returns:
+        Optional[str]: normalized file path or ``None`` when no usable path is
+        present.
+
+    This helper is defensive and does not raise exceptions.
+    """
     if audio_value is None:
         return None
     if isinstance(audio_value, str):
@@ -950,22 +968,24 @@ def validate_uploaded_audio_file(audio_value: Any, audio_role: str = "reference"
         audio_role: User-facing label context (for example, ``reference`` or ``source``).
 
     Returns:
-        Original audio value when valid, otherwise ``None`` to clear invalid input.
+        ``gr.skip()`` for valid files, or ``gr.update(value=None)`` to clear
+        invalid input after showing a warning toast.
     """
     audio_path = _extract_audio_path(audio_value)
     if not audio_path:
-        return audio_value
+        return gr.skip()
 
     try:
         soundfile.info(audio_path)
-        return audio_value
+        return gr.skip()
     except (OSError, RuntimeError, ValueError):
-        role_label = "Reference" if audio_role == "reference" else "Source"
-        gr.Warning(
-            f"{role_label} audio format is invalid or unsupported. "
-            "Please upload a valid audio file."
+        role_label = (
+            t("generation.reference_audio")
+            if audio_role == "reference"
+            else t("generation.source_audio")
         )
-        return None
+        gr.Warning(t("messages.audio_format_invalid", role=role_label))
+        return gr.update(value=None)
 
 
 def update_audio_cover_strength_visibility(task_type_value, init_llm_checked, reference_audio=None):
