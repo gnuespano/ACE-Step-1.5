@@ -1,8 +1,8 @@
-"""Tests for path-sanitisation helpers in data_module.
+"""Tests for path-sanitisation in data_module.
 
-Covers the _resolve_and_validate_dir and _safe_child_path functions
-that guard against path-traversal attacks (CodeQL: uncontrolled data
-used in path expression).
+Covers the safe_path integration in PreprocessedTensorDataset and
+load_dataset_from_json that guards against path-traversal attacks
+(CodeQL: uncontrolled data used in path expression).
 """
 
 import os
@@ -10,63 +10,55 @@ import json
 import tempfile
 import unittest
 
+from acestep.training.path_safety import safe_path, set_safe_root
 from acestep.training.data_module import (
-    _resolve_and_validate_dir,
-    _safe_child_path,
     PreprocessedTensorDataset,
     load_dataset_from_json,
 )
 
 
-class ResolveAndValidateDirTests(unittest.TestCase):
-    """Tests for _resolve_and_validate_dir."""
+class SafePathTests(unittest.TestCase):
+    """Tests for safe_path from path_safety module."""
 
     def test_valid_directory(self):
         with tempfile.TemporaryDirectory() as d:
-            result = _resolve_and_validate_dir(d)
+            parent = os.path.dirname(os.path.realpath(d))
+            set_safe_root(parent)
+            result = safe_path(d)
             self.assertEqual(result, os.path.realpath(d))
 
-    def test_nonexistent_directory_raises(self):
-        with self.assertRaises(ValueError):
-            _resolve_and_validate_dir("/nonexistent_path_abc123")
-
-    def test_file_path_raises(self):
-        with tempfile.NamedTemporaryFile() as f:
+    def test_traversal_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            set_safe_root(d)
             with self.assertRaises(ValueError):
-                _resolve_and_validate_dir(f.name)
+                safe_path("../../etc/passwd", base=d)
 
-
-class SafeChildPathTests(unittest.TestCase):
-    """Tests for _safe_child_path."""
+    def test_absolute_path_outside_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            set_safe_root(d)
+            with self.assertRaises(ValueError):
+                safe_path("/etc/passwd", base=d)
 
     def test_normal_child(self):
         with tempfile.TemporaryDirectory() as d:
             base = os.path.realpath(d)
-            result = _safe_child_path(base, "foo.pt")
+            result = safe_path("foo.pt", base=base)
             self.assertEqual(result, os.path.join(base, "foo.pt"))
-
-    def test_traversal_blocked(self):
-        with tempfile.TemporaryDirectory() as d:
-            base = os.path.realpath(d)
-            result = _safe_child_path(base, "../../etc/passwd")
-            self.assertIsNone(result)
-
-    def test_absolute_path_outside_blocked(self):
-        with tempfile.TemporaryDirectory() as d:
-            base = os.path.realpath(d)
-            result = _safe_child_path(base, "/etc/passwd")
-            self.assertIsNone(result)
 
     def test_absolute_path_inside_allowed(self):
         with tempfile.TemporaryDirectory() as d:
             base = os.path.realpath(d)
             child = os.path.join(base, "sub", "file.pt")
-            result = _safe_child_path(base, child)
+            result = safe_path(child, base=base)
             self.assertEqual(result, child)
 
 
 class PreprocessedTensorDatasetPathSafetyTests(unittest.TestCase):
     """Tests that PreprocessedTensorDataset rejects traversal paths."""
+
+    def setUp(self):
+        # Allow /tmp paths during tests
+        set_safe_root(tempfile.gettempdir())
 
     def test_manifest_traversal_paths_skipped(self):
         """Paths in manifest.json that escape tensor_dir are ignored."""
@@ -100,15 +92,18 @@ class PreprocessedTensorDatasetPathSafetyTests(unittest.TestCase):
 
     def test_nonexistent_dir_raises(self):
         with self.assertRaises(ValueError):
-            PreprocessedTensorDataset("/nonexistent_xyz_12345")
+            PreprocessedTensorDataset("/tmp/nonexistent_xyz_12345")
 
 
 class LoadDatasetFromJsonTests(unittest.TestCase):
     """Tests for load_dataset_from_json path validation."""
 
+    def setUp(self):
+        set_safe_root(tempfile.gettempdir())
+
     def test_nonexistent_file_raises(self):
         with self.assertRaises(ValueError):
-            load_dataset_from_json("/nonexistent_file.json")
+            load_dataset_from_json("/tmp/nonexistent_file.json")
 
     def test_valid_json(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:

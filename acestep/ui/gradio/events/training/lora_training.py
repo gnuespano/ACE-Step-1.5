@@ -12,11 +12,10 @@ from typing import Dict, Tuple
 from loguru import logger
 
 from acestep.gpu_config import get_global_gpu_config
+from acestep.training.path_safety import safe_path
 from acestep.ui.gradio.i18n import t
 from .training_utils import (
-    SAFE_TRAINING_ROOT,
     _format_duration,
-    _safe_join,
     _training_loss_figure,
 )
 
@@ -48,9 +47,12 @@ def start_training(
         yield "❌ Please enter a tensor directory path", "", None, training_state
         return
 
-    tensor_dir = tensor_dir.strip()
-
-    if not os.path.exists(tensor_dir):
+    try:
+        tensor_dir = safe_path(tensor_dir.strip())
+    except ValueError:
+        yield f"❌ Rejected unsafe tensor directory path: {tensor_dir}", "", None, training_state
+        return
+    if not os.path.isdir(tensor_dir):
         yield f"❌ Tensor directory not found: {tensor_dir}", "", None, training_state
         return
 
@@ -164,9 +166,13 @@ def start_training(
 
         resume_from = None
         if resume_checkpoint_dir and resume_checkpoint_dir.strip():
-            normalized_resume = _safe_join(SAFE_TRAINING_ROOT, resume_checkpoint_dir.strip())
-            if normalized_resume and os.path.exists(normalized_resume):
-                resume_from = normalized_resume
+            try:
+                normalized_resume = safe_path(resume_checkpoint_dir.strip())
+                if os.path.exists(normalized_resume):
+                    resume_from = normalized_resume
+            except ValueError:
+                logger.warning(f"Rejected unsafe resume path: {resume_checkpoint_dir}")
+                resume_from = None
 
         for step, loss, status in trainer.train_from_preprocessed(
             tensor_dir, training_state, resume_from=resume_from,
@@ -256,8 +262,9 @@ def export_lora(export_path: str, lora_output_dir: str) -> str:
     if not export_path or not export_path.strip():
         return t("training.export_path_required")
 
-    safe_lora_dir = _safe_join(SAFE_TRAINING_ROOT, lora_output_dir)
-    if safe_lora_dir is None:
+    try:
+        safe_lora_dir = safe_path(lora_output_dir)
+    except ValueError:
         return t("training.invalid_lora_output_dir")
 
     final_dir = os.path.join(safe_lora_dir, "final")
@@ -275,21 +282,22 @@ def export_lora(export_path: str, lora_output_dir: str) -> str:
     else:
         return t("training.no_trained_model_found", path=lora_output_dir)
 
-    safe_export_path = _safe_join(SAFE_TRAINING_ROOT, export_path)
-    if safe_export_path is None:
+    try:
+        safe_export = safe_path(export_path.strip())
+    except ValueError:
         return t("training.invalid_export_path")
 
     try:
         import shutil
 
-        parent_dir = os.path.dirname(safe_export_path) or "."
+        parent_dir = os.path.dirname(safe_export) or "."
         os.makedirs(parent_dir, exist_ok=True)
 
-        if os.path.exists(safe_export_path):
-            shutil.rmtree(safe_export_path)
+        if os.path.exists(safe_export):
+            shutil.rmtree(safe_export)
 
-        shutil.copytree(source_path, safe_export_path)
-        return t("training.lora_exported", path=safe_export_path)
+        shutil.copytree(source_path, safe_export)
+        return t("training.lora_exported", path=safe_export)
 
     except Exception as e:
         logger.exception("Export error")

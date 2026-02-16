@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import gradio as gr
 from loguru import logger
 
+from acestep.training.path_safety import safe_path
 from acestep.ui.gradio.i18n import t
 from .training_utils import _format_duration, _training_loss_figure
 
@@ -46,8 +47,12 @@ def start_lokr_training(
         yield "❌ Please enter a tensor directory path", "", None, training_state
         return
 
-    tensor_dir = tensor_dir.strip()
-    if not os.path.exists(tensor_dir):
+    try:
+        tensor_dir = safe_path(tensor_dir.strip())
+    except ValueError:
+        yield f"❌ Rejected unsafe tensor directory path: {tensor_dir}", "", None, training_state
+        return
+    if not os.path.isdir(tensor_dir):
         yield f"❌ Tensor directory not found: {tensor_dir}", "", None, training_state
         return
 
@@ -207,7 +212,15 @@ def list_lokr_export_epochs(lokr_output_dir: str) -> Tuple[Any, str]:
             t("training.lokr_output_dir_required"),
         )
 
-    checkpoint_dir = os.path.join(lokr_output_dir.strip(), "checkpoints")
+    try:
+        lokr_output_dir = safe_path(lokr_output_dir.strip())
+    except ValueError:
+        return (
+            gr.update(choices=[default_choice], value=default_choice),
+            "❌ Rejected unsafe output directory path",
+        )
+
+    checkpoint_dir = os.path.join(lokr_output_dir, "checkpoints")
     if not os.path.isdir(checkpoint_dir):
         return (
             gr.update(choices=[default_choice], value=default_choice),
@@ -253,6 +266,12 @@ def export_lokr(
     """
     if not export_path or not export_path.strip():
         return t("training.export_path_required")
+
+    try:
+        lokr_output_dir = safe_path(lokr_output_dir)
+        export_path = safe_path(export_path.strip())
+    except ValueError:
+        return "❌ Rejected unsafe path"
 
     final_dir = os.path.join(lokr_output_dir, "final")
     checkpoint_dir = os.path.join(lokr_output_dir, "checkpoints")
@@ -305,7 +324,6 @@ def export_lokr(
     try:
         import shutil
 
-        export_path = export_path.strip()
         if export_path.lower().endswith(".safetensors"):
             os.makedirs(
                 os.path.dirname(export_path) if os.path.dirname(export_path) else ".",

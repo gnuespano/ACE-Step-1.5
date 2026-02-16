@@ -3,6 +3,7 @@ from typing import List, Tuple
 
 from loguru import logger
 
+from acestep.training.path_safety import safe_path
 from .audio_io import get_audio_duration, load_caption_file, load_json_metadata, load_lyrics_file
 from .csv_metadata import load_csv_metadata
 from .models import AudioSample, SUPPORTED_AUDIO_FORMATS
@@ -13,6 +14,11 @@ class ScanMixin:
 
     def scan_directory(self, directory: str) -> Tuple[List[AudioSample], str]:
         """Scan a directory for audio files."""
+        try:
+            directory = safe_path(directory)
+        except ValueError:
+            return [], f"❌ Rejected unsafe directory path: {directory}"
+
         if not os.path.exists(directory):
             return [], f"❌ Directory not found: {directory}"
 

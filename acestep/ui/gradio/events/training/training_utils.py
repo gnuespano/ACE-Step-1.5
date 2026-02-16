@@ -15,8 +15,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from acestep.ui.gradio.i18n import t
+from acestep.training.path_safety import get_safe_root
 
-SAFE_TRAINING_ROOT = os.path.abspath(os.getcwd())
+SAFE_TRAINING_ROOT = get_safe_root()
 
 
 def create_dataset_builder():
@@ -45,19 +46,19 @@ def _safe_slider(
 
 
 def _safe_join(base_root: str, user_path: str) -> Optional[str]:
-    """Safely join user path to base root, preventing directory traversal."""
+    """Safely join user path to base root, preventing directory traversal.
+
+    Uses ``os.path.normpath`` + ``startswith`` — the pattern CodeQL
+    recognises as a path-injection sanitiser.
+    """
     if not user_path or not user_path.strip():
         return None
     candidate = user_path.strip()
     if os.path.isabs(candidate):
         return None
-    abs_root = os.path.abspath(base_root)
-    joined = os.path.abspath(os.path.join(abs_root, candidate))
-    try:
-        common = os.path.commonpath([abs_root, joined])
-    except ValueError:
-        return None
-    if common != abs_root:
+    abs_root = os.path.normpath(os.path.abspath(base_root))
+    joined = os.path.normpath(os.path.join(abs_root, candidate))
+    if not joined.startswith(abs_root + os.sep) and joined != abs_root:
         return None
     return joined
 

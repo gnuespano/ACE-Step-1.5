@@ -12,6 +12,7 @@ import gradio as gr
 from loguru import logger
 
 from acestep.training.dataset_builder import DatasetBuilder
+from acestep.training.path_safety import safe_path
 from acestep.debug_utils import debug_log_for, debug_start_for, debug_end_for
 from .training_utils import _safe_slider
 
@@ -47,7 +48,17 @@ def load_existing_dataset_for_preprocess(
             builder_state,
         ) + empty_preview + updates
 
-    dataset_path = dataset_path.strip()
+    try:
+        dataset_path = safe_path(dataset_path.strip())
+    except ValueError:
+        updates = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+        return (
+            f"❌ Rejected unsafe dataset path: {dataset_path}",
+            [],
+            _safe_slider(0, value=0, visible=False),
+            builder_state,
+        ) + empty_preview + updates
+
     debug_log_for("dataset", f"UI load_existing_dataset_for_preprocess: path='{dataset_path}'")
 
     if not os.path.exists(dataset_path):
@@ -192,7 +203,10 @@ def load_training_dataset(tensor_dir: str) -> str:
     if not tensor_dir or not tensor_dir.strip():
         return "❌ Please enter a tensor directory path"
 
-    tensor_dir = tensor_dir.strip()
+    try:
+        tensor_dir = safe_path(tensor_dir.strip())
+    except ValueError:
+        return f"❌ Rejected unsafe tensor directory path: {tensor_dir}"
 
     if not os.path.exists(tensor_dir):
         return f"❌ Directory not found: {tensor_dir}"
