@@ -10,10 +10,25 @@ class MlxVaeInitMixin:
     """Initialize native MLX VAE state and compiled decode/encode callables."""
 
     def _init_mlx_vae(self) -> bool:
-        """Initialize MLX VAE from the loaded PyTorch VAE.
+        """Initialize native MLX VAE runtime state from ``self.vae``.
+
+        The ``_init_mlx_vae`` path converts the loaded PyTorch VAE in
+        ``self.vae`` to an MLX implementation, optionally applies float16
+        conversion based on ``ACESTEP_MLX_VAE_FP16``, and prepares decode/encode
+        callables.
+
+        Side effects:
+            Mutates ``self.mlx_vae`` and ``self.use_mlx_vae`` and updates
+            ``self._mlx_compiled_decode``, ``self._mlx_compiled_encode_sample``,
+            and ``self._mlx_vae_dtype``.
 
         Returns:
             bool: ``True`` when MLX VAE is initialized successfully, else ``False``.
+
+        Error behavior:
+            Returns ``False`` when MLX is unavailable or when any conversion/
+            initialization step raises an exception. Failures are logged as
+            non-fatal.
         """
         try:
             from acestep.models.mlx import mlx_available
@@ -75,4 +90,7 @@ class MlxVaeInitMixin:
             logger.warning(f"[MLX-VAE] Failed to initialize MLX VAE (non-fatal): {exc}")
             self.mlx_vae = None
             self.use_mlx_vae = False
+            self._mlx_compiled_decode = None
+            self._mlx_compiled_encode_sample = None
+            self._mlx_vae_dtype = None
             return False
