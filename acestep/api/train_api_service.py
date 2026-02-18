@@ -177,10 +177,10 @@ def register_training_api_routes(
             # Constrain export_path to a safe base directory and prevent path traversal
             safe_base = os.path.abspath("./exports")
             export_path = os.path.abspath(os.path.join(safe_base, export_path))
-            if not export_path.startswith(safe_base + os.sep) and export_path != safe_base:
+            if not export_path.startswith(safe_base + os.sep):
                 raise HTTPException(status_code=400, detail="Invalid export path")
 
-            os.makedirs(os.path.dirname(export_path) if os.path.dirname(export_path) else ".", exist_ok=True)
+            os.makedirs(os.path.dirname(export_path), exist_ok=True)
             if os.path.exists(export_path):
                 shutil.rmtree(export_path)
             shutil.copytree(source_path, export_path)
